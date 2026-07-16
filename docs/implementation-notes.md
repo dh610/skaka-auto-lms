@@ -444,6 +444,10 @@ checkOutTime이 생성됐는지 확인
 
 조사 중 생성된 네트워크 캡처와 DOM 파일에는 단기 토큰 또는 개인정보가 포함될 수 있다. 분석이 끝나면 안전하게 삭제하거나 접근 권한을 제한해야 한다.
 
+정리 상태: 아래 홈 디렉터리의 조사 산출물은 2026-07-16에 삭제했으며, 관련
+모니터링 프로세스가 실행 중이지 않은 것도 확인했다. 경로 목록은 어떤 민감 자료를
+생성했는지 알 수 있도록 역사적 기록으로만 남긴다.
+
 - `/Users/donghyeon/lms-network-capture.jsonl`
 - `/Users/donghyeon/lms-current-dom.html`
 - `/Users/donghyeon/lms-current-resources.json`
