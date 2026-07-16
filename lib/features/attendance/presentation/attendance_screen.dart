@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:app_links/app_links.dart';
 import 'package:flutter/material.dart';
@@ -12,6 +13,7 @@ import '../../schedule/presentation/schedule_list_screen.dart';
 import '../application/attendance_controller.dart';
 import '../data/attendance_gateway.dart';
 import '../data/skala_attendance_api.dart';
+import '../domain/action_confirmation_policy.dart';
 import '../domain/attendance_snapshot.dart';
 
 class AttendanceScreen extends StatefulWidget {
@@ -23,6 +25,7 @@ class AttendanceScreen extends StatefulWidget {
     required this.onEditProfile,
     this.gateway,
     this.appLinkStream,
+    this.isAndroid,
   });
 
   final UserProfile profile;
@@ -31,6 +34,7 @@ class AttendanceScreen extends StatefulWidget {
   final Future<void> Function() onEditProfile;
   final AttendanceGateway? gateway;
   final Stream<Uri>? appLinkStream;
+  final bool? isAndroid;
 
   @override
   State<AttendanceScreen> createState() => _AttendanceScreenState();
@@ -39,6 +43,8 @@ class AttendanceScreen extends StatefulWidget {
 class _AttendanceScreenState extends State<AttendanceScreen> {
   late final AttendanceController _controller;
   StreamSubscription<Uri>? _linkSubscription;
+  AttendanceAction? _pendingScheduledAction;
+  bool _handlingScheduledAction = false;
 
   @override
   void initState() {
@@ -46,7 +52,9 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
     _controller = AttendanceController(
       widget.profile,
       widget.gateway ?? SkalaAttendanceApi(),
+      isAndroid: widget.isAndroid,
     );
+    _controller.addListener(_handleControllerChange);
     _linkSubscription = (widget.appLinkStream ?? AppLinks().uriLinkStream)
         .listen(
           _controller.handleCallback,
@@ -62,7 +70,49 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
     final payload = widget.notificationScheduler.tapPayload.value;
     if (payload == null || _controller.busy) return;
     widget.notificationScheduler.consumeTap();
+    final action = _actionFromPayload(payload);
+    if (action == null) return;
+    _pendingScheduledAction = action;
     _controller.startAuthentication();
+  }
+
+  AttendanceAction? _actionFromPayload(String payload) {
+    try {
+      final json = jsonDecode(payload) as Map<String, dynamic>;
+      final actionName = json['action'] as String?;
+      if (actionName == null) return null;
+      return AttendanceAction.values
+          .where((action) => action.name == actionName)
+          .firstOrNull;
+    } on FormatException {
+      return null;
+    } on TypeError {
+      return null;
+    }
+  }
+
+  void _handleControllerChange() {
+    final action = _pendingScheduledAction;
+    final snapshot = _controller.snapshot;
+    if (action == null ||
+        snapshot == null ||
+        !_controller.authenticated ||
+        _controller.busy ||
+        _handlingScheduledAction) {
+      return;
+    }
+    _pendingScheduledAction = null;
+    _handlingScheduledAction = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
+      if (snapshot.availableActions.contains(action)) {
+        await _confirmAction(action);
+      } else {
+        _controller.reportUnavailableScheduledAction(action);
+      }
+      _handlingScheduledAction = false;
+    });
+    WidgetsBinding.instance.scheduleFrame();
   }
 
   @override
@@ -79,30 +129,37 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
     widget.notificationScheduler.tapPayload.removeListener(
       _handleNotificationTap,
     );
+    _controller.removeListener(_handleControllerChange);
     _controller.dispose();
     super.dispose();
   }
 
   Future<void> _confirmAction(AttendanceAction action) async {
+    if (!requiresAttendanceConfirmation(action)) {
+      await _controller.performAction(action);
+      return;
+    }
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: Text('${action.label} 처리'),
-        content: Text(
-          '${widget.profile.name}님의 오늘 출결에 ${action.label} 기록을 전송할까요?\n'
-          '전송된 출결 기록은 앱에서 취소할 수 없습니다.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('취소'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: Text('${action.label} 전송'),
-          ),
-        ],
-      ),
+      builder: (dialogContext) => action == AttendanceAction.checkOut
+          ? _EarlyCheckOutConfirmationDialog(profileName: widget.profile.name)
+          : AlertDialog(
+              title: Text('${action.label} 처리'),
+              content: Text(
+                '${widget.profile.name}님, ${attendanceConfirmationMessage(action)}\n\n'
+                '전송된 출결 기록은 앱에서 취소할 수 없습니다.',
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(false),
+                  child: const Text('취소'),
+                ),
+                FilledButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(true),
+                  child: Text('${action.label} 전송'),
+                ),
+              ],
+            ),
     );
     if (confirmed == true) await _controller.performAction(action);
   }
@@ -154,6 +211,65 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
           ),
         );
       },
+    );
+  }
+}
+
+class _EarlyCheckOutConfirmationDialog extends StatefulWidget {
+  const _EarlyCheckOutConfirmationDialog({required this.profileName});
+
+  final String profileName;
+
+  @override
+  State<_EarlyCheckOutConfirmationDialog> createState() =>
+      _EarlyCheckOutConfirmationDialogState();
+}
+
+class _EarlyCheckOutConfirmationDialogState
+    extends State<_EarlyCheckOutConfirmationDialog> {
+  late DateTime _now;
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _now = DateTime.now();
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(() => _now = DateTime.now());
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final remaining = timeUntilConfirmationFreeCheckOut(_now);
+    final reachedThreshold = remaining == Duration.zero;
+    return AlertDialog(
+      title: const Text('퇴실 처리'),
+      content: Text(
+        reachedThreshold
+            ? '${widget.profileName}님, 퇴실 가능 시간이 되었습니다.\n\n'
+                  '전송된 출결 기록은 앱에서 취소할 수 없습니다.'
+            : '${widget.profileName}님, 아직 17시 50분 이전입니다.\n'
+                  '17시 50분까지 ${formatRemainingTime(remaining)} 남았습니다.\n'
+                  '정말 퇴실 처리하시겠습니까?\n\n'
+                  '전송된 출결 기록은 앱에서 취소할 수 없습니다.',
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(false),
+          child: const Text('취소'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.of(context).pop(true),
+          child: const Text('퇴실 전송'),
+        ),
+      ],
     );
   }
 }

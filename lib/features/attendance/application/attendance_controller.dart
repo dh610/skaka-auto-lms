@@ -101,6 +101,10 @@ class AttendanceController extends ChangeNotifier {
     }
   }
 
+  void reportUnavailableScheduledAction(AttendanceAction action) {
+    _setState(message: '예약된 ${action.label} 동작은 현재 출결 상태에서 실행할 수 없습니다.');
+  }
+
   void reportLinkError(Object error) {
     _setState(message: '앱 링크 오류: $error');
   }

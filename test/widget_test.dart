@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -132,6 +134,52 @@ void main() {
     expect(notifications.tapPayload.value, isNull);
     schedules.dispose();
   });
+
+  testWidgets('authentication callback confirms a scheduled leave action', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    const profile = UserProfile(
+      name: '윤동현',
+      region: CampusRegion.pangyo5f,
+      classNumber: 8,
+    );
+    final notifications = _NoOpNotificationScheduler()
+      ..emit('{"scheduleId":"leave","action":"leave"}');
+    final schedules = ScheduleController(ScheduleStore());
+    await schedules.load();
+    final links = StreamController<Uri>();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: AttendanceScreen(
+          profile: profile,
+          scheduleController: schedules,
+          notificationScheduler: notifications,
+          onEditProfile: () async {},
+          gateway: _WidgetTestAttendanceGateway(
+            snapshot: const AttendanceSnapshot(
+              networkAllowed: true,
+              checkInTime: '09:00',
+            ),
+          ),
+          appLinkStream: links.stream,
+          isAndroid: true,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    links.add(Uri.parse('https://att.skala-ai.com?token=test-token'));
+    await tester.pump();
+    await tester.pump();
+    await tester.pumpAndSettle();
+
+    expect(find.text('외출 처리'), findsOneWidget);
+    expect(find.text('외출 전송'), findsOneWidget);
+
+    await links.close();
+    schedules.dispose();
+  });
 }
 
 class _NoOpNotificationScheduler implements NotificationScheduler {
@@ -160,6 +208,11 @@ class _NoOpNotificationScheduler implements NotificationScheduler {
 }
 
 class _WidgetTestAttendanceGateway implements AttendanceGateway {
+  _WidgetTestAttendanceGateway({
+    this.snapshot = const AttendanceSnapshot(networkAllowed: true),
+  });
+
+  final AttendanceSnapshot snapshot;
   UserProfile? authenticationProfile;
 
   @override
@@ -169,7 +222,7 @@ class _WidgetTestAttendanceGateway implements AttendanceGateway {
 
   @override
   Future<AttendanceSnapshot> fetchToday(String token) async {
-    return const AttendanceSnapshot(networkAllowed: true);
+    return snapshot;
   }
 
   @override
