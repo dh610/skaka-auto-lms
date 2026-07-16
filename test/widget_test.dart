@@ -1,9 +1,17 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:skala_attendance/app/app.dart';
+import 'package:skala_attendance/features/attendance/data/attendance_gateway.dart';
+import 'package:skala_attendance/features/attendance/domain/attendance_snapshot.dart';
+import 'package:skala_attendance/features/attendance/presentation/attendance_screen.dart';
 import 'package:skala_attendance/features/profile/domain/user_profile.dart';
 import 'package:skala_attendance/features/profile/presentation/profile_setup_screen.dart';
+import 'package:skala_attendance/features/schedule/application/notification_scheduler.dart';
+import 'package:skala_attendance/features/schedule/application/schedule_controller.dart';
+import 'package:skala_attendance/features/schedule/data/schedule_store.dart';
+import 'package:skala_attendance/features/schedule/domain/attendance_schedule.dart';
 import 'package:skala_attendance/features/schedule/presentation/schedule_edit_screen.dart';
 
 void main() {
@@ -48,7 +56,9 @@ void main() {
       'profile.region': 'P2',
       'profile.classNumber': 8,
     });
-    await tester.pumpWidget(const SkalaAttendanceApp());
+    await tester.pumpWidget(
+      SkalaAttendanceApp(notificationScheduler: _NoOpNotificationScheduler()),
+    );
     await tester.pumpAndSettle();
 
     await tester.tap(find.text('사용자 정보 변경'));
@@ -88,4 +98,86 @@ void main() {
     expect(find.text('대체공휴일(광복절)'), findsOneWidget);
     expect(find.text('광복절'), findsNothing);
   });
+
+  testWidgets('tapping a schedule notification starts authentication', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    const profile = UserProfile(
+      name: '윤동현',
+      region: CampusRegion.pangyo5f,
+      classNumber: 8,
+    );
+    final notifications = _NoOpNotificationScheduler()
+      ..emit('{"scheduleId":"check-in","action":"checkIn"}');
+    final schedules = ScheduleController(ScheduleStore());
+    await schedules.load();
+    final gateway = _WidgetTestAttendanceGateway();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: AttendanceScreen(
+          profile: profile,
+          scheduleController: schedules,
+          notificationScheduler: notifications,
+          onEditProfile: () async {},
+          gateway: gateway,
+          appLinkStream: const Stream.empty(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(gateway.authenticationProfile, profile);
+    expect(notifications.tapPayload.value, isNull);
+    schedules.dispose();
+  });
+}
+
+class _NoOpNotificationScheduler implements NotificationScheduler {
+  final _tapPayload = ValueNotifier<String?>(null);
+
+  @override
+  ValueListenable<String?> get tapPayload => _tapPayload;
+
+  @override
+  void consumeTap() => _tapPayload.value = null;
+
+  void emit(String payload) => _tapPayload.value = payload;
+
+  @override
+  Future<void> initialize() async {}
+
+  @override
+  Future<bool> requestPermissions() async => true;
+
+  @override
+  Future<void> showTestNotification() async {}
+
+  @override
+  Future<int> sync(List<AttendanceSchedule> schedules, {DateTime? now}) async =>
+      0;
+}
+
+class _WidgetTestAttendanceGateway implements AttendanceGateway {
+  UserProfile? authenticationProfile;
+
+  @override
+  Future<void> startBrowserAuthentication(UserProfile profile) async {
+    authenticationProfile = profile;
+  }
+
+  @override
+  Future<AttendanceSnapshot> fetchToday(String token) async {
+    return const AttendanceSnapshot(networkAllowed: true);
+  }
+
+  @override
+  Future<void> recordAction(String token, AttendanceAction action) async {}
+
+  @override
+  void validateAttendanceToken(String token, UserProfile profile) {}
+
+  @override
+  void close() {}
 }

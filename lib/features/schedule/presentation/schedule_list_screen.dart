@@ -62,52 +62,96 @@ class ScheduleListScreen extends StatelessWidget {
           if (controller.loading) {
             return const Center(child: CircularProgressIndicator());
           }
-          if (controller.schedules.isEmpty) {
-            return const Center(
-              child: Padding(
-                padding: EdgeInsets.all(32),
-                child: Text(
-                  '등록된 일정이 없습니다.\n일정 추가 버튼을 눌러 시작하세요.',
-                  textAlign: TextAlign.center,
-                ),
-              ),
-            );
-          }
-          return ListView.separated(
+          return ListView(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 96),
-            itemCount: controller.schedules.length,
-            separatorBuilder: (_, _) => const SizedBox(height: 8),
-            itemBuilder: (context, index) {
-              final schedule = controller.schedules[index];
-              return Card(
-                child: ListTile(
-                  enabled: schedule.enabled,
-                  onTap: () => _openEditor(context, schedule),
-                  leading: CircleAvatar(child: Text(schedule.action.label[0])),
-                  title: Text(
-                    '${schedule.formattedTime} · ${schedule.action.label}',
+            children: [
+              _NotificationCard(controller: controller),
+              const SizedBox(height: 12),
+              if (controller.schedules.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 48),
+                  child: Text(
+                    '등록된 일정이 없습니다.\n일정 추가 버튼을 눌러 시작하세요.',
+                    textAlign: TextAlign.center,
                   ),
-                  subtitle: Text(schedule.recurrenceLabel),
-                  trailing: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Switch(
-                        value: schedule.enabled,
-                        onChanged: (enabled) =>
-                            controller.setEnabled(schedule, enabled),
+                )
+              else
+                ...controller.schedules.map(
+                  (schedule) => Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: Card(
+                      child: ListTile(
+                        enabled: schedule.enabled,
+                        onTap: () => _openEditor(context, schedule),
+                        leading: CircleAvatar(
+                          child: Text(schedule.action.label[0]),
+                        ),
+                        title: Text(
+                          '${schedule.formattedTime} · ${schedule.action.label}',
+                        ),
+                        subtitle: Text(schedule.recurrenceLabel),
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Switch(
+                              value: schedule.enabled,
+                              onChanged: (enabled) =>
+                                  controller.setEnabled(schedule, enabled),
+                            ),
+                            IconButton(
+                              tooltip: '삭제',
+                              onPressed: () =>
+                                  _confirmDelete(context, schedule),
+                              icon: const Icon(Icons.delete_outline),
+                            ),
+                          ],
+                        ),
                       ),
-                      IconButton(
-                        tooltip: '삭제',
-                        onPressed: () => _confirmDelete(context, schedule),
-                        icon: const Icon(Icons.delete_outline),
-                      ),
-                    ],
+                    ),
                   ),
                 ),
-              );
-            },
+            ],
           );
         },
+      ),
+    );
+  }
+}
+
+class _NotificationCard extends StatelessWidget {
+  const _NotificationCard({required this.controller});
+
+  final ScheduleController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('일정 알림', style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 8),
+            Text(controller.notificationMessage),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              children: [
+                OutlinedButton.icon(
+                  onPressed: controller.configureNotifications,
+                  icon: const Icon(Icons.notifications_active_outlined),
+                  label: const Text('알림 권한 설정'),
+                ),
+                TextButton.icon(
+                  onPressed: controller.showTestNotification,
+                  icon: const Icon(Icons.notification_add_outlined),
+                  label: const Text('테스트 알림'),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }

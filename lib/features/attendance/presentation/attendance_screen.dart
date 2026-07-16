@@ -5,10 +5,12 @@ import 'package:flutter/material.dart';
 
 import '../../profile/domain/user_profile.dart';
 import '../../schedule/application/schedule_controller.dart';
+import '../../schedule/application/notification_scheduler.dart';
 import '../../schedule/domain/attendance_schedule.dart';
 import '../../schedule/domain/training_calendar.dart';
 import '../../schedule/presentation/schedule_list_screen.dart';
 import '../application/attendance_controller.dart';
+import '../data/attendance_gateway.dart';
 import '../data/skala_attendance_api.dart';
 import '../domain/attendance_snapshot.dart';
 
@@ -17,12 +19,18 @@ class AttendanceScreen extends StatefulWidget {
     super.key,
     required this.profile,
     required this.scheduleController,
+    required this.notificationScheduler,
     required this.onEditProfile,
+    this.gateway,
+    this.appLinkStream,
   });
 
   final UserProfile profile;
   final ScheduleController scheduleController;
+  final NotificationScheduler notificationScheduler;
   final Future<void> Function() onEditProfile;
+  final AttendanceGateway? gateway;
+  final Stream<Uri>? appLinkStream;
 
   @override
   State<AttendanceScreen> createState() => _AttendanceScreenState();
@@ -30,17 +38,31 @@ class AttendanceScreen extends StatefulWidget {
 
 class _AttendanceScreenState extends State<AttendanceScreen> {
   late final AttendanceController _controller;
-  final _appLinks = AppLinks();
   StreamSubscription<Uri>? _linkSubscription;
 
   @override
   void initState() {
     super.initState();
-    _controller = AttendanceController(widget.profile, SkalaAttendanceApi());
-    _linkSubscription = _appLinks.uriLinkStream.listen(
-      _controller.handleCallback,
-      onError: _controller.reportLinkError,
+    _controller = AttendanceController(
+      widget.profile,
+      widget.gateway ?? SkalaAttendanceApi(),
     );
+    _linkSubscription = (widget.appLinkStream ?? AppLinks().uriLinkStream)
+        .listen(
+          _controller.handleCallback,
+          onError: _controller.reportLinkError,
+        );
+    widget.notificationScheduler.tapPayload.addListener(_handleNotificationTap);
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => _handleNotificationTap(),
+    );
+  }
+
+  void _handleNotificationTap() {
+    final payload = widget.notificationScheduler.tapPayload.value;
+    if (payload == null || _controller.busy) return;
+    widget.notificationScheduler.consumeTap();
+    _controller.startAuthentication();
   }
 
   @override
@@ -54,6 +76,9 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
   @override
   void dispose() {
     _linkSubscription?.cancel();
+    widget.notificationScheduler.tapPayload.removeListener(
+      _handleNotificationTap,
+    );
     _controller.dispose();
     super.dispose();
   }

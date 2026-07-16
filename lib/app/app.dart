@@ -5,10 +5,14 @@ import '../features/profile/data/profile_store.dart';
 import '../features/profile/domain/user_profile.dart';
 import '../features/profile/presentation/profile_setup_screen.dart';
 import '../features/schedule/application/schedule_controller.dart';
+import '../features/schedule/application/notification_scheduler.dart';
 import '../features/schedule/data/schedule_store.dart';
+import '../features/schedule/data/local_notification_scheduler.dart';
 
 class SkalaAttendanceApp extends StatefulWidget {
-  const SkalaAttendanceApp({super.key});
+  const SkalaAttendanceApp({super.key, this.notificationScheduler});
+
+  final NotificationScheduler? notificationScheduler;
 
   @override
   State<SkalaAttendanceApp> createState() => _SkalaAttendanceAppState();
@@ -17,15 +21,27 @@ class SkalaAttendanceApp extends StatefulWidget {
 class _SkalaAttendanceAppState extends State<SkalaAttendanceApp> {
   final _navigatorKey = GlobalKey<NavigatorState>();
   final _profileStore = ProfileStore();
-  final _scheduleController = ScheduleController(ScheduleStore());
+  late final NotificationScheduler _notificationScheduler;
+  late final ScheduleController _scheduleController;
   UserProfile? _profile;
   bool _loading = true;
 
   @override
   void initState() {
     super.initState();
+    _notificationScheduler =
+        widget.notificationScheduler ?? LocalNotificationScheduler();
+    _scheduleController = ScheduleController(
+      ScheduleStore(),
+      _notificationScheduler,
+    );
     _loadProfile();
-    _scheduleController.load();
+    _initializeSchedules();
+  }
+
+  Future<void> _initializeSchedules() async {
+    await _notificationScheduler.initialize();
+    await _scheduleController.load();
   }
 
   @override
@@ -79,6 +95,7 @@ class _SkalaAttendanceAppState extends State<SkalaAttendanceApp> {
           : AttendanceScreen(
               profile: _profile!,
               scheduleController: _scheduleController,
+              notificationScheduler: _notificationScheduler,
               onEditProfile: _editProfile,
             ),
     );
