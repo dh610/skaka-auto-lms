@@ -45,12 +45,14 @@ android/   Android 플랫폼 코드 및 설정
 ios/       iOS 플랫폼 코드 및 설정
 lib/       Flutter 애플리케이션 코드
 test/      위젯 및 모델 테스트
-docs/      인증/API 조사 기록
+docs/      현재 구현, 설계 결정 및 과거 조사 기록
 ```
 
 ## 설계 문서
 
-- [구현 조사 기록](docs/implementation-notes.md)
+- [문서 안내](docs/README.md)
+- [현재 구현 상태](docs/current-implementation.md)
+- [초기 조사 및 구현 계획](docs/implementation-notes.md)
 - [공휴일 데이터 운영 전략](docs/holiday-data-strategy.md)
 - [Android와 iOS의 기능 차이](docs/platform-capability-differences.md)
 
