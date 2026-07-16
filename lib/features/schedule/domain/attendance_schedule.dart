@@ -10,6 +10,15 @@ enum AttendanceAction {
   final String eventType;
 }
 
+enum ScheduleRecurrence {
+  weekly('요일 반복'),
+  once('날짜 지정');
+
+  const ScheduleRecurrence(this.label);
+
+  final String label;
+}
+
 class AttendanceSchedule {
   const AttendanceSchedule({
     required this.id,
@@ -18,16 +27,28 @@ class AttendanceSchedule {
     required this.minute,
     required this.weekdays,
     required this.enabled,
-  });
+    this.recurrence = ScheduleRecurrence.weekly,
+    this.date,
+    this.excludePublicHolidays = true,
+  }) : assert(recurrence == ScheduleRecurrence.weekly || date != null);
 
   factory AttendanceSchedule.fromJson(Map<String, dynamic> json) {
+    final recurrenceName = json['recurrence'] as String?;
+    final dateValue = json['date'] as String?;
     return AttendanceSchedule(
       id: json['id'] as String,
       action: AttendanceAction.values.byName(json['action'] as String),
       hour: json['hour'] as int,
       minute: json['minute'] as int,
-      weekdays: (json['weekdays'] as List<dynamic>).cast<int>().toSet(),
+      weekdays: (json['weekdays'] as List<dynamic>? ?? const [])
+          .cast<int>()
+          .toSet(),
       enabled: json['enabled'] as bool? ?? true,
+      recurrence: recurrenceName == null
+          ? ScheduleRecurrence.weekly
+          : ScheduleRecurrence.values.byName(recurrenceName),
+      date: dateValue == null ? null : DateTime.parse(dateValue),
+      excludePublicHolidays: json['excludePublicHolidays'] as bool? ?? true,
     );
   }
 
@@ -37,13 +58,30 @@ class AttendanceSchedule {
   final int minute;
   final Set<int> weekdays;
   final bool enabled;
+  final ScheduleRecurrence recurrence;
+  final DateTime? date;
+  final bool excludePublicHolidays;
 
   int get minutesSinceMidnight => hour * 60 + minute;
 
   String get formattedTime =>
       '${hour.toString().padLeft(2, '0')}:${minute.toString().padLeft(2, '0')}';
 
-  bool occursOn(DateTime date) => enabled && weekdays.contains(date.weekday);
+  String get recurrenceLabel {
+    if (recurrence == ScheduleRecurrence.weekly) {
+      final days = formatWeekdays(weekdays);
+      return excludePublicHolidays ? '$days · 공휴일 제외' : days;
+    }
+    return formatDate(date!);
+  }
+
+  bool matches(DateTime target) {
+    if (!enabled) return false;
+    if (recurrence == ScheduleRecurrence.weekly) {
+      return weekdays.contains(target.weekday);
+    }
+    return isSameDate(date!, target);
+  }
 
   AttendanceSchedule copyWith({
     AttendanceAction? action,
@@ -51,6 +89,9 @@ class AttendanceSchedule {
     int? minute,
     Set<int>? weekdays,
     bool? enabled,
+    ScheduleRecurrence? recurrence,
+    DateTime? date,
+    bool? excludePublicHolidays,
   }) {
     return AttendanceSchedule(
       id: id,
@@ -59,6 +100,10 @@ class AttendanceSchedule {
       minute: minute ?? this.minute,
       weekdays: weekdays ?? this.weekdays,
       enabled: enabled ?? this.enabled,
+      recurrence: recurrence ?? this.recurrence,
+      date: date ?? this.date,
+      excludePublicHolidays:
+          excludePublicHolidays ?? this.excludePublicHolidays,
     );
   }
 
@@ -69,6 +114,9 @@ class AttendanceSchedule {
     'minute': minute,
     'weekdays': weekdays.toList()..sort(),
     'enabled': enabled,
+    'recurrence': recurrence.name,
+    'date': date == null ? null : formatIsoDate(date!),
+    'excludePublicHolidays': excludePublicHolidays,
   };
 }
 
@@ -97,3 +145,15 @@ String formatWeekdays(Set<int> weekdays) {
       .map((entry) => entry.value)
       .join('·');
 }
+
+String formatIsoDate(DateTime date) =>
+    '${date.year.toString().padLeft(4, '0')}-'
+    '${date.month.toString().padLeft(2, '0')}-'
+    '${date.day.toString().padLeft(2, '0')}';
+
+String formatDate(DateTime date) => '${date.year}. ${date.month}. ${date.day}.';
+
+bool isSameDate(DateTime first, DateTime second) =>
+    first.year == second.year &&
+    first.month == second.month &&
+    first.day == second.day;

@@ -87,7 +87,7 @@ class ScheduleListScreen extends StatelessWidget {
                   title: Text(
                     '${schedule.formattedTime} · ${schedule.action.label}',
                   ),
-                  subtitle: Text(formatWeekdays(schedule.weekdays)),
+                  subtitle: Text(schedule.recurrenceLabel),
                   trailing: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [

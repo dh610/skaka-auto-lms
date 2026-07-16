@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import '../../profile/domain/user_profile.dart';
 import '../../schedule/application/schedule_controller.dart';
 import '../../schedule/domain/attendance_schedule.dart';
+import '../../schedule/domain/training_calendar.dart';
 import '../../schedule/presentation/schedule_list_screen.dart';
 import '../application/attendance_controller.dart';
 import '../data/skala_attendance_api.dart';
@@ -114,7 +115,9 @@ class _TodaySchedulesCard extends StatelessWidget {
     return ListenableBuilder(
       listenable: controller,
       builder: (context, _) {
-        final schedules = controller.schedulesFor(DateTime.now());
+        final today = DateTime.now();
+        final schedules = controller.schedulesFor(today);
+        final holidayName = TrainingCalendar.holidayName(today);
         return Card(
           child: Padding(
             padding: const EdgeInsets.all(18),
@@ -142,6 +145,11 @@ class _TodaySchedulesCard extends StatelessWidget {
                 ),
                 if (controller.loading)
                   const LinearProgressIndicator()
+                else if (holidayName != null && schedules.isEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: Text('$holidayName · 반복 일정이 제외되었습니다.'),
+                  )
                 else if (schedules.isEmpty)
                   const Padding(
                     padding: EdgeInsets.only(top: 8),

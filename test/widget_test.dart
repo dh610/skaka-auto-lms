@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:skala_attendance/app/app.dart';
 import 'package:skala_attendance/features/profile/domain/user_profile.dart';
 import 'package:skala_attendance/features/profile/presentation/profile_setup_screen.dart';
+import 'package:skala_attendance/features/schedule/presentation/schedule_edit_screen.dart';
 
 void main() {
   test('campus regions expose only their valid classes', () {
@@ -55,5 +56,18 @@ void main() {
 
     expect(find.text('사용자 정보 수정'), findsOneWidget);
     expect(find.widgetWithText(TextFormField, '윤동현'), findsOneWidget);
+  });
+
+  testWidgets('schedule editor switches between weekly and one-time modes', (
+    tester,
+  ) async {
+    await tester.pumpWidget(const MaterialApp(home: ScheduleEditScreen()));
+
+    expect(find.text('공휴일 제외'), findsOneWidget);
+    await tester.tap(find.text('날짜 지정'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('실행 날짜'), findsOneWidget);
+    expect(find.text('공휴일 제외'), findsNothing);
   });
 }

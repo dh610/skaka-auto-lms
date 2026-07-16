@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 
 import '../data/schedule_store.dart';
 import '../domain/attendance_schedule.dart';
+import '../domain/training_calendar.dart';
 
 class ScheduleController extends ChangeNotifier {
   ScheduleController(this._store);
@@ -21,7 +22,13 @@ class ScheduleController extends ChangeNotifier {
   }
 
   List<AttendanceSchedule> schedulesFor(DateTime date) {
-    return _schedules.where((schedule) => schedule.occursOn(date)).toList();
+    if (!TrainingCalendar.isWithinCourse(date)) return [];
+    return _schedules.where((schedule) {
+      if (!schedule.matches(date)) return false;
+      return schedule.recurrence == ScheduleRecurrence.once ||
+          !schedule.excludePublicHolidays ||
+          !TrainingCalendar.isPublicHoliday(date);
+    }).toList();
   }
 
   Future<void> saveSchedule(AttendanceSchedule schedule) async {
