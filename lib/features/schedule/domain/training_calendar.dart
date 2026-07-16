@@ -30,4 +30,13 @@ class TrainingCalendar {
   static String? holidayName(DateTime date) {
     return publicHolidays[formatIsoDate(date)];
   }
+
+  static List<({DateTime date, String name})> holidaysForWeekdays(
+    Set<int> weekdays,
+  ) {
+    return publicHolidays.entries
+        .map((entry) => (date: DateTime.parse(entry.key), name: entry.value))
+        .where((holiday) => weekdays.contains(holiday.date.weekday))
+        .toList();
+  }
 }

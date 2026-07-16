@@ -70,4 +70,22 @@ void main() {
     expect(find.text('실행 날짜'), findsOneWidget);
     expect(find.text('공휴일 제외'), findsNothing);
   });
+
+  testWidgets('weekly editor shows holidays matching selected weekdays', (
+    tester,
+  ) async {
+    await tester.pumpWidget(const MaterialApp(home: ScheduleEditScreen()));
+
+    await tester.tap(find.text('제외되는 공휴일 보기'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('제외되는 공휴일'), findsOneWidget);
+    expect(
+      find.text('평일 일정과 겹치는 공휴일입니다(2026.07.14~2026.12.18 기준)'),
+      findsOneWidget,
+    );
+    expect(find.text('제헌절'), findsOneWidget);
+    expect(find.text('대체공휴일(광복절)'), findsOneWidget);
+    expect(find.text('광복절'), findsNothing);
+  });
 }

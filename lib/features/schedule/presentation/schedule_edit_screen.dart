@@ -71,6 +71,55 @@ class _ScheduleEditScreenState extends State<ScheduleEditScreen> {
     if (selected != null && mounted) setState(() => _date = selected);
   }
 
+  void _showExcludedHolidays() {
+    final holidays = TrainingCalendar.holidaysForWeekdays(_weekdays);
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('제외되는 공휴일', style: Theme.of(context).textTheme.titleLarge),
+              const SizedBox(height: 8),
+              Text(
+                '${formatWeekdays(_weekdays)} 일정과 겹치는 공휴일입니다'
+                '(2026.07.14~2026.12.18 기준)',
+              ),
+              const SizedBox(height: 12),
+              if (holidays.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 16),
+                  child: Text('선택한 요일과 겹치는 공휴일이 없습니다.'),
+                )
+              else
+                Flexible(
+                  child: ListView.builder(
+                    shrinkWrap: true,
+                    itemCount: holidays.length,
+                    itemBuilder: (context, index) {
+                      final holiday = holidays[index];
+                      return ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: const Icon(Icons.event_busy_outlined),
+                        title: Text(holiday.name),
+                        subtitle: Text(
+                          '${formatDate(holiday.date)} (${weekdayLabels[holiday.date.weekday]})',
+                        ),
+                      );
+                    },
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   void _save() {
     if (_recurrence == ScheduleRecurrence.weekly && _weekdays.isEmpty) {
       ScaffoldMessenger.of(
@@ -165,6 +214,14 @@ class _ScheduleEditScreenState extends State<ScheduleEditScreen> {
               onChanged: (value) {
                 setState(() => _excludePublicHolidays = value);
               },
+            ),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                onPressed: _weekdays.isEmpty ? null : _showExcludedHolidays,
+                icon: const Icon(Icons.calendar_month_outlined),
+                label: const Text('제외되는 공휴일 보기'),
+              ),
             ),
           ] else ...[
             ListTile(

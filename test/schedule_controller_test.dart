@@ -123,5 +123,18 @@ void main() {
     expect(TrainingCalendar.publicHolidays, hasLength(9));
     expect(TrainingCalendar.holidayName(DateTime(2026, 8, 17)), '대체공휴일(광복절)');
     expect(TrainingCalendar.holidayName(DateTime(2026, 10, 5)), '대체공휴일(개천절)');
+    final weekdayHolidays = TrainingCalendar.holidaysForWeekdays({
+      1,
+      2,
+      3,
+      4,
+      5,
+    });
+    expect(weekdayHolidays, hasLength(6));
+    expect(weekdayHolidays.map((holiday) => holiday.name), contains('제헌절'));
+    expect(
+      weekdayHolidays.map((holiday) => holiday.name),
+      isNot(contains('광복절')),
+    );
   });
 }
