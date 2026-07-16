@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../profile/domain/user_profile.dart';
+import '../../schedule/domain/attendance_schedule.dart';
 import '../domain/attendance_snapshot.dart';
 import 'attendance_gateway.dart';
 
@@ -16,6 +17,9 @@ class SkalaAttendanceApi implements AttendanceGateway {
   );
   static final Uri _todayUri = Uri.parse(
     'https://lms.skala-ai.com/api/trainee/attendance/today',
+  );
+  static final Uri _recordUri = Uri.parse(
+    'https://lms.skala-ai.com/api/trainee/attendance/today/record',
   );
 
   SkalaAttendanceApi({http.Client? client}) : _client = client ?? http.Client();
@@ -104,6 +108,23 @@ class SkalaAttendanceApi implements AttendanceGateway {
     return AttendanceSnapshot.fromJson(
       jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>,
     );
+  }
+
+  @override
+  Future<void> recordAction(String token, AttendanceAction action) async {
+    final response = await _client
+        .post(
+          _recordUri,
+          headers: {
+            'Authorization': 'Bearer $token',
+            'Content-Type': 'application/json',
+          },
+          body: jsonEncode({'eventType': action.eventType}),
+        )
+        .timeout(const Duration(seconds: 10));
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw StateError(_serverError(response));
+    }
   }
 
   String _serverError(http.Response response) {

@@ -58,6 +58,30 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
     super.dispose();
   }
 
+  Future<void> _confirmAction(AttendanceAction action) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text('${action.label} 처리'),
+        content: Text(
+          '${widget.profile.name}님의 오늘 출결에 ${action.label} 기록을 전송할까요?\n'
+          '전송된 출결 기록은 앱에서 취소할 수 없습니다.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('취소'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: Text('${action.label} 전송'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) await _controller.performAction(action);
+  }
+
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
@@ -93,10 +117,14 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
               Text(_controller.message),
               if (_controller.snapshot case final snapshot?) ...[
                 const SizedBox(height: 16),
-                _StatusCard(snapshot: snapshot),
+                _StatusCard(
+                  snapshot: snapshot,
+                  busy: _controller.busy,
+                  onAction: _confirmAction,
+                ),
               ],
               const SizedBox(height: 24),
-              const Text('현재 버전은 읽기 전용입니다. 입실·퇴실·외출·복귀 요청을 전송하지 않습니다.'),
+              const Text('출결 동작은 확인창에서 승인한 경우에만 서버로 전송됩니다.'),
             ],
           ),
         );
@@ -235,9 +263,15 @@ class _ProfileCard extends StatelessWidget {
 }
 
 class _StatusCard extends StatelessWidget {
-  const _StatusCard({required this.snapshot});
+  const _StatusCard({
+    required this.snapshot,
+    required this.busy,
+    required this.onAction,
+  });
 
   final AttendanceSnapshot snapshot;
+  final bool busy;
+  final Future<void> Function(AttendanceAction action) onAction;
 
   @override
   Widget build(BuildContext context) {
@@ -254,6 +288,25 @@ class _StatusCard extends StatelessWidget {
             Text('퇴실: ${snapshot.checkOutTime ?? '없음'}'),
             Text('외출: ${snapshot.earlyLeaveTime ?? '없음'}'),
             Text('복귀: ${snapshot.returnTime ?? '없음'}'),
+            const SizedBox(height: 16),
+            if (!snapshot.networkAllowed)
+              const Text('현재 네트워크에서는 출결 동작을 전송할 수 없습니다.')
+            else if (snapshot.availableActions.isEmpty)
+              const Text('현재 가능한 출결 동작이 없습니다.')
+            else ...[
+              Text('가능한 동작', style: Theme.of(context).textTheme.titleMedium),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: snapshot.availableActions.map((action) {
+                  return FilledButton.tonal(
+                    onPressed: busy ? null : () => onAction(action),
+                    child: Text(action.label),
+                  );
+                }).toList(),
+              ),
+            ],
           ],
         ),
       ),

@@ -1,3 +1,5 @@
+import '../../schedule/domain/attendance_schedule.dart';
+
 class AttendanceSnapshot {
   const AttendanceSnapshot({
     required this.networkAllowed,
@@ -23,4 +25,23 @@ class AttendanceSnapshot {
   final String? checkOutTime;
   final String? earlyLeaveTime;
   final String? returnTime;
+
+  Set<AttendanceAction> get availableActions {
+    if (!networkAllowed || checkOutTime != null) return const {};
+    if (checkInTime == null) return const {AttendanceAction.checkIn};
+    if (earlyLeaveTime != null && returnTime == null) {
+      return const {AttendanceAction.returnFromLeave};
+    }
+    if (earlyLeaveTime != null) return const {AttendanceAction.checkOut};
+    return const {AttendanceAction.leave, AttendanceAction.checkOut};
+  }
+
+  bool reflects(AttendanceAction action) {
+    return switch (action) {
+      AttendanceAction.checkIn => checkInTime != null,
+      AttendanceAction.checkOut => checkOutTime != null,
+      AttendanceAction.leave => earlyLeaveTime != null,
+      AttendanceAction.returnFromLeave => returnTime != null,
+    };
+  }
 }

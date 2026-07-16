@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 
 import '../../profile/domain/user_profile.dart';
+import '../../schedule/domain/attendance_schedule.dart';
 import '../data/attendance_gateway.dart';
 import '../domain/attendance_snapshot.dart';
 
@@ -18,18 +19,23 @@ class AttendanceController extends ChangeNotifier {
   bool _busy = false;
   String _message = '아직 인증하지 않았습니다.';
   AttendanceSnapshot? _snapshot;
+  String? _token;
 
   bool get busy => _busy;
   String get message => _message;
   AttendanceSnapshot? get snapshot => _snapshot;
+  bool get authenticated => _token != null;
   String get platformDescription =>
       _isAndroid ? 'Android · 인증 후 앱에서 상태 조회' : 'iOS · 인증 후 Safari에서 수동 처리';
 
   void updateProfile(UserProfile profile) {
     _profile = profile;
+    _token = null;
+    _setState(clearSnapshot: true, message: '사용자 정보가 변경되었습니다. 다시 인증해주세요.');
   }
 
   Future<void> startAuthentication() async {
+    _token = null;
     _setState(busy: true, clearSnapshot: true, message: '본인 확인 중…');
     try {
       await _gateway.startBrowserAuthentication(_profile);
@@ -60,9 +66,36 @@ class AttendanceController extends ChangeNotifier {
     try {
       _gateway.validateAttendanceToken(token, _profile);
       final snapshot = await _gateway.fetchToday(token);
+      _token = token;
       _setState(snapshot: snapshot, message: '인증 및 상태 조회에 성공했습니다.');
     } catch (error) {
       _setState(message: '콜백 처리 실패: $error');
+    } finally {
+      _setState(busy: false);
+    }
+  }
+
+  Future<void> performAction(AttendanceAction action) async {
+    final token = _token;
+    final current = _snapshot;
+    if (token == null || current == null) {
+      _setState(message: 'Google 인증이 필요합니다.');
+      return;
+    }
+    if (!current.availableActions.contains(action)) {
+      _setState(message: '현재 출결 상태에서는 ${action.label}할 수 없습니다.');
+      return;
+    }
+    _setState(busy: true, message: '${action.label} 요청 전송 중…');
+    try {
+      await _gateway.recordAction(token, action);
+      final updated = await _gateway.fetchToday(token);
+      if (!updated.reflects(action)) {
+        throw StateError('서버 상태에서 ${action.label} 반영을 확인하지 못했습니다.');
+      }
+      _setState(snapshot: updated, message: '${action.label} 처리가 완료되었습니다.');
+    } catch (error) {
+      _setState(message: '${action.label} 처리 실패: $error');
     } finally {
       _setState(busy: false);
     }
