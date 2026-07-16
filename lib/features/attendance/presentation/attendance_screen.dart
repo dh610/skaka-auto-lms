@@ -4,6 +4,9 @@ import 'package:app_links/app_links.dart';
 import 'package:flutter/material.dart';
 
 import '../../profile/domain/user_profile.dart';
+import '../../schedule/application/schedule_controller.dart';
+import '../../schedule/domain/attendance_schedule.dart';
+import '../../schedule/presentation/schedule_list_screen.dart';
 import '../application/attendance_controller.dart';
 import '../data/skala_attendance_api.dart';
 import '../domain/attendance_snapshot.dart';
@@ -12,10 +15,12 @@ class AttendanceScreen extends StatefulWidget {
   const AttendanceScreen({
     super.key,
     required this.profile,
+    required this.scheduleController,
     required this.onEditProfile,
   });
 
   final UserProfile profile;
+  final ScheduleController scheduleController;
   final Future<void> Function() onEditProfile;
 
   @override
@@ -69,6 +74,8 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                 onEditProfile: widget.onEditProfile,
               ),
               const SizedBox(height: 16),
+              _TodaySchedulesCard(controller: widget.scheduleController),
+              const SizedBox(height: 16),
               FilledButton.icon(
                 onPressed: _controller.busy
                     ? null
@@ -93,6 +100,82 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
           ),
         );
       },
+    );
+  }
+}
+
+class _TodaySchedulesCard extends StatelessWidget {
+  const _TodaySchedulesCard({required this.controller});
+
+  final ScheduleController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: controller,
+      builder: (context, _) {
+        final schedules = controller.schedulesFor(DateTime.now());
+        return Card(
+          child: Padding(
+            padding: const EdgeInsets.all(18),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        '오늘 예정된 동작',
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                    ),
+                    TextButton(
+                      onPressed: () => Navigator.of(context).push<void>(
+                        MaterialPageRoute(
+                          builder: (_) =>
+                              ScheduleListScreen(controller: controller),
+                        ),
+                      ),
+                      child: const Text('일정 관리'),
+                    ),
+                  ],
+                ),
+                if (controller.loading)
+                  const LinearProgressIndicator()
+                else if (schedules.isEmpty)
+                  const Padding(
+                    padding: EdgeInsets.only(top: 8),
+                    child: Text('오늘 실행할 일정이 없습니다.'),
+                  )
+                else
+                  ...schedules.map((schedule) => _ScheduleRow(schedule)),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _ScheduleRow extends StatelessWidget {
+  const _ScheduleRow(this.schedule);
+
+  final AttendanceSchedule schedule;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 10),
+      child: Row(
+        children: [
+          const Icon(Icons.schedule, size: 20),
+          const SizedBox(width: 10),
+          Text(schedule.formattedTime),
+          const SizedBox(width: 12),
+          Text(schedule.action.label),
+        ],
+      ),
     );
   }
 }

@@ -4,6 +4,8 @@ import '../features/attendance/presentation/attendance_screen.dart';
 import '../features/profile/data/profile_store.dart';
 import '../features/profile/domain/user_profile.dart';
 import '../features/profile/presentation/profile_setup_screen.dart';
+import '../features/schedule/application/schedule_controller.dart';
+import '../features/schedule/data/schedule_store.dart';
 
 class SkalaAttendanceApp extends StatefulWidget {
   const SkalaAttendanceApp({super.key});
@@ -15,6 +17,7 @@ class SkalaAttendanceApp extends StatefulWidget {
 class _SkalaAttendanceAppState extends State<SkalaAttendanceApp> {
   final _navigatorKey = GlobalKey<NavigatorState>();
   final _profileStore = ProfileStore();
+  final _scheduleController = ScheduleController(ScheduleStore());
   UserProfile? _profile;
   bool _loading = true;
 
@@ -22,6 +25,13 @@ class _SkalaAttendanceAppState extends State<SkalaAttendanceApp> {
   void initState() {
     super.initState();
     _loadProfile();
+    _scheduleController.load();
+  }
+
+  @override
+  void dispose() {
+    _scheduleController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadProfile() async {
@@ -66,7 +76,11 @@ class _SkalaAttendanceAppState extends State<SkalaAttendanceApp> {
           ? const Scaffold(body: Center(child: CircularProgressIndicator()))
           : _profile == null
           ? ProfileSetupScreen(onInitialSave: _saveInitialProfile)
-          : AttendanceScreen(profile: _profile!, onEditProfile: _editProfile),
+          : AttendanceScreen(
+              profile: _profile!,
+              scheduleController: _scheduleController,
+              onEditProfile: _editProfile,
+            ),
     );
   }
 }
