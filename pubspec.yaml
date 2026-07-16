@@ -1,0 +1,24 @@
+name: skala_attendance
+description: SKALA LMS attendance helper for Android and iOS.
+publish_to: none
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.12.2
+
+dependencies:
+  app_links: ^7.2.1
+  cupertino_icons: ^1.0.8
+  flutter:
+    sdk: flutter
+  http: ^1.6.0
+  shared_preferences: ^2.5.5
+  url_launcher: ^6.3.2
+
+dev_dependencies:
+  flutter_lints: ^6.0.0
+  flutter_test:
+    sdk: flutter
+
+flutter:
+  uses-material-design: true
