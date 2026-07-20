@@ -9,6 +9,7 @@ import '../features/schedule/application/notification_scheduler.dart';
 import '../features/schedule/data/schedule_store.dart';
 import '../features/schedule/data/local_notification_scheduler.dart';
 import 'app_theme.dart';
+import 'theme_mode_store.dart';
 
 class SkalaAttendanceApp extends StatefulWidget {
   const SkalaAttendanceApp({super.key, this.notificationScheduler});
@@ -22,10 +23,12 @@ class SkalaAttendanceApp extends StatefulWidget {
 class _SkalaAttendanceAppState extends State<SkalaAttendanceApp> {
   final _navigatorKey = GlobalKey<NavigatorState>();
   final _profileStore = ProfileStore();
+  final _themeModeStore = ThemeModeStore();
   late final NotificationScheduler _notificationScheduler;
   late final ScheduleController _scheduleController;
   UserProfile? _profile;
   bool _loading = true;
+  ThemeMode _themeMode = ThemeMode.system;
 
   @override
   void initState() {
@@ -37,7 +40,19 @@ class _SkalaAttendanceAppState extends State<SkalaAttendanceApp> {
       _notificationScheduler,
     );
     _loadProfile();
+    _loadThemeMode();
     _initializeSchedules();
+  }
+
+  Future<void> _loadThemeMode() async {
+    final themeMode = await _themeModeStore.load();
+    if (mounted) setState(() => _themeMode = themeMode);
+  }
+
+  Future<void> _changeThemeMode(ThemeMode themeMode) async {
+    if (_themeMode == themeMode) return;
+    setState(() => _themeMode = themeMode);
+    await _themeModeStore.save(themeMode);
   }
 
   Future<void> _initializeSchedules() async {
@@ -87,7 +102,7 @@ class _SkalaAttendanceAppState extends State<SkalaAttendanceApp> {
       title: 'SKALA 출결 도우미',
       theme: AppTheme.light(),
       darkTheme: AppTheme.dark(),
-      themeMode: ThemeMode.system,
+      themeMode: _themeMode,
       home: _loading
           ? const Scaffold(body: Center(child: CircularProgressIndicator()))
           : _profile == null
@@ -97,6 +112,8 @@ class _SkalaAttendanceAppState extends State<SkalaAttendanceApp> {
               scheduleController: _scheduleController,
               notificationScheduler: _notificationScheduler,
               onEditProfile: _editProfile,
+              themeMode: _themeMode,
+              onThemeModeChanged: _changeThemeMode,
             ),
     );
   }

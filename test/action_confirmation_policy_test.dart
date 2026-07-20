@@ -63,6 +63,7 @@ void main() {
 
     expect(remaining, const Duration(hours: 1, minutes: 2, seconds: 34));
     expect(formatRemainingTime(remaining), '01시간 02분 34초');
+    expect(formatRemainingClock(remaining), '01:02:34');
     expect(
       timeUntilConfirmationFreeCheckOut(DateTime(2026, 7, 16, 17, 50)),
       Duration.zero,

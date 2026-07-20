@@ -1,7 +1,9 @@
 import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:skala_attendance/features/attendance/application/attendance_controller.dart';
+import 'package:skala_attendance/features/attendance/data/attendance_completion_store.dart';
 import 'package:skala_attendance/features/attendance/data/attendance_gateway.dart';
 import 'package:skala_attendance/features/attendance/domain/attendance_snapshot.dart';
 import 'package:skala_attendance/features/profile/domain/user_profile.dart';
@@ -39,6 +41,43 @@ void main() {
     expect(controller.snapshot, same(gateway.snapshot));
     expect(controller.message, '인증 및 상태 조회에 성공했습니다.');
     controller.dispose();
+  });
+
+  test('scheduled authentication survives controller recreation', () async {
+    SharedPreferences.setMockInitialValues({});
+    final now = DateTime.now();
+    final scheduledAt = now.subtract(const Duration(minutes: 1));
+    final schedule = AttendanceSchedule(
+      id: 'today-check-in',
+      action: AttendanceAction.checkIn,
+      hour: scheduledAt.hour,
+      minute: scheduledAt.minute,
+      weekdays: {scheduledAt.weekday},
+      enabled: true,
+    );
+    final store = AttendanceCompletionStore();
+    final first = AttendanceController(
+      profile,
+      _FakeAttendanceGateway(),
+      isAndroid: true,
+      completionStore: store,
+    );
+    await first.startAuthentication(
+      scheduleId: schedule.id,
+      scheduledAt: scheduledAt,
+    );
+    first.dispose();
+
+    final restored = AttendanceController(
+      profile,
+      _FakeAttendanceGateway(),
+      isAndroid: true,
+      completionStore: store,
+    );
+    await restored.loadCompletionHistory();
+
+    expect(restored.wasScheduleCompleted(schedule, now), isTrue);
+    restored.dispose();
   });
 
   test('ignores callbacks from unrelated hosts', () async {

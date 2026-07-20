@@ -11,10 +11,12 @@ import '../../schedule/domain/attendance_schedule.dart';
 import '../../schedule/domain/training_calendar.dart';
 import '../../schedule/presentation/schedule_list_screen.dart';
 import '../application/attendance_controller.dart';
+import '../data/attendance_completion_store.dart';
 import '../data/attendance_gateway.dart';
 import '../data/skala_attendance_api.dart';
 import '../domain/action_confirmation_policy.dart';
 import '../domain/attendance_snapshot.dart';
+import '../domain/today_schedule_status.dart';
 
 class AttendanceScreen extends StatefulWidget {
   const AttendanceScreen({
@@ -23,6 +25,8 @@ class AttendanceScreen extends StatefulWidget {
     required this.scheduleController,
     required this.notificationScheduler,
     required this.onEditProfile,
+    this.themeMode = ThemeMode.system,
+    this.onThemeModeChanged,
     this.gateway,
     this.appLinkStream,
     this.isAndroid,
@@ -32,6 +36,8 @@ class AttendanceScreen extends StatefulWidget {
   final ScheduleController scheduleController;
   final NotificationScheduler notificationScheduler;
   final Future<void> Function() onEditProfile;
+  final ThemeMode themeMode;
+  final ValueChanged<ThemeMode>? onThemeModeChanged;
   final AttendanceGateway? gateway;
   final Stream<Uri>? appLinkStream;
   final bool? isAndroid;
@@ -53,7 +59,9 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
       widget.profile,
       widget.gateway ?? SkalaAttendanceApi(),
       isAndroid: widget.isAndroid,
+      completionStore: AttendanceCompletionStore(),
     );
+    unawaited(_controller.loadCompletionHistory());
     _controller.addListener(_handleControllerChange);
     _linkSubscription = (widget.appLinkStream ?? AppLinks().uriLinkStream)
         .listen(
@@ -70,20 +78,32 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
     final payload = widget.notificationScheduler.tapPayload.value;
     if (payload == null || _controller.busy) return;
     widget.notificationScheduler.consumeTap();
-    final action = _actionFromPayload(payload);
-    if (action == null) return;
-    _pendingScheduledAction = action;
-    _controller.startAuthentication();
+    final occurrence = _occurrenceFromPayload(payload);
+    if (occurrence == null) return;
+    _pendingScheduledAction = occurrence.action;
+    _controller.startAuthentication(
+      scheduleId: occurrence.scheduleId,
+      scheduledAt: occurrence.scheduledAt,
+    );
   }
 
-  AttendanceAction? _actionFromPayload(String payload) {
+  _ScheduledOccurrence? _occurrenceFromPayload(String payload) {
     try {
       final json = jsonDecode(payload) as Map<String, dynamic>;
+      final scheduleId = json['scheduleId'] as String?;
       final actionName = json['action'] as String?;
-      if (actionName == null) return null;
-      return AttendanceAction.values
+      final scheduledAtValue = json['scheduledAt'] as String?;
+      if (scheduleId == null ||
+          actionName == null ||
+          scheduledAtValue == null) {
+        return null;
+      }
+      final action = AttendanceAction.values
           .where((action) => action.name == actionName)
           .firstOrNull;
+      final scheduledAt = DateTime.tryParse(scheduledAtValue);
+      if (action == null || scheduledAt == null) return null;
+      return (scheduleId: scheduleId, action: action, scheduledAt: scheduledAt);
     } on FormatException {
       return null;
     } on TypeError {
@@ -164,13 +184,51 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
     if (confirmed == true) await _controller.performAction(action);
   }
 
+  Future<void> _showThemePicker() async {
+    final selected = await showDialog<ThemeMode>(
+      context: context,
+      builder: (dialogContext) => SimpleDialog(
+        title: const Text('테마 선택'),
+        children: ThemeMode.values.map((mode) {
+          final (icon, label) = switch (mode) {
+            ThemeMode.system => (Icons.settings_suggest_outlined, '시스템 설정'),
+            ThemeMode.light => (Icons.light_mode_outlined, '라이트 모드'),
+            ThemeMode.dark => (Icons.dark_mode_outlined, '다크 모드'),
+          };
+          return SimpleDialogOption(
+            onPressed: () => Navigator.of(dialogContext).pop(mode),
+            child: ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: Icon(icon),
+              title: Text(label),
+              trailing: widget.themeMode == mode
+                  ? const Icon(Icons.check)
+                  : null,
+            ),
+          );
+        }).toList(),
+      ),
+    );
+    if (selected != null) widget.onThemeModeChanged?.call(selected);
+  }
+
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
       listenable: _controller,
       builder: (context, _) {
         return Scaffold(
-          appBar: AppBar(title: const Text('SKALA 출결')),
+          appBar: AppBar(
+            title: const Text('SKALA 출결'),
+            actions: [
+              if (widget.onThemeModeChanged != null)
+                IconButton(
+                  tooltip: '테마 설정',
+                  onPressed: _showThemePicker,
+                  icon: const Icon(Icons.brightness_6_outlined),
+                ),
+            ],
+          ),
           body: ListView(
             padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
             children: [
@@ -194,7 +252,10 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                 onEditProfile: widget.onEditProfile,
               ),
               const SizedBox(height: 16),
-              _TodaySchedulesCard(controller: widget.scheduleController),
+              _TodaySchedulesCard(
+                controller: widget.scheduleController,
+                attendanceController: _controller,
+              ),
               const SizedBox(height: 16),
               _AuthenticationCard(
                 busy: _controller.busy,
@@ -379,14 +440,55 @@ class _EarlyCheckOutConfirmationDialogState
     final reachedThreshold = remaining == Duration.zero;
     return AlertDialog(
       title: const Text('퇴실 처리'),
-      content: Text(
-        reachedThreshold
-            ? '${widget.profileName}님, 퇴실 가능 시간이 되었습니다.\n\n'
-                  '전송된 출결 기록은 앱에서 취소할 수 없습니다.'
-            : '${widget.profileName}님, 아직 오후 5시 50분 이전입니다.\n'
-                  '오후 5시 50분까지 ${formatRemainingTime(remaining)} 남았습니다.\n'
-                  '정말 퇴실 처리하시겠습니까?\n\n'
-                  '전송된 출결 기록은 앱에서 취소할 수 없습니다.',
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            reachedThreshold
+                ? '${widget.profileName}님, 퇴실 가능 시간이 되었습니다.'
+                : '${widget.profileName}님, 아직 오후 5시 50분 이전입니다.',
+          ),
+          const SizedBox(height: 16),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.primaryContainer,
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Column(
+              children: [
+                Text(
+                  formatRemainingClock(remaining),
+                  key: const Key('check-out-countdown'),
+                  style: Theme.of(context).textTheme.headlineLarge?.copyWith(
+                    color: Theme.of(context).colorScheme.onPrimaryContainer,
+                    fontWeight: FontWeight.w800,
+                    fontFeatures: const [FontFeature.tabularFigures()],
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  reachedThreshold ? '지금부터 확인 없이 퇴실 가능' : '안전한 퇴실까지 남은 시간',
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Theme.of(context).colorScheme.onPrimaryContainer,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+          Text(reachedThreshold ? '퇴실 기록을 전송하시겠습니까?' : '지금 퇴실 처리하시겠습니까?'),
+          const SizedBox(height: 8),
+          Text(
+            '전송된 출결 기록은 앱에서 취소할 수 없습니다.',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: Theme.of(context).colorScheme.error,
+            ),
+          ),
+        ],
       ),
       actions: [
         TextButton(
@@ -402,18 +504,43 @@ class _EarlyCheckOutConfirmationDialogState
   }
 }
 
-class _TodaySchedulesCard extends StatelessWidget {
-  const _TodaySchedulesCard({required this.controller});
+class _TodaySchedulesCard extends StatefulWidget {
+  const _TodaySchedulesCard({
+    required this.controller,
+    required this.attendanceController,
+  });
 
   final ScheduleController controller;
+  final AttendanceController attendanceController;
+
+  @override
+  State<_TodaySchedulesCard> createState() => _TodaySchedulesCardState();
+}
+
+class _TodaySchedulesCardState extends State<_TodaySchedulesCard> {
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _timer = Timer.periodic(const Duration(minutes: 1), (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
-      listenable: controller,
+      listenable: widget.controller,
       builder: (context, _) {
         final today = DateTime.now();
-        final schedules = controller.schedulesFor(today);
+        final schedules = widget.controller.schedulesFor(today);
         final holidayName = TrainingCalendar.holidayName(today);
         return Card(
           child: Padding(
@@ -438,14 +565,14 @@ class _TodaySchedulesCard extends StatelessWidget {
                       onPressed: () => Navigator.of(context).push<void>(
                         MaterialPageRoute(
                           builder: (_) =>
-                              ScheduleListScreen(controller: controller),
+                              ScheduleListScreen(controller: widget.controller),
                         ),
                       ),
                       child: const Text('일정 관리'),
                     ),
                   ],
                 ),
-                if (controller.loading)
+                if (widget.controller.loading)
                   const LinearProgressIndicator()
                 else if (holidayName != null && schedules.isEmpty)
                   Padding(
@@ -458,7 +585,17 @@ class _TodaySchedulesCard extends StatelessWidget {
                     child: Text('오늘 실행할 일정이 없습니다.'),
                   )
                 else
-                  ...schedules.map((schedule) => _ScheduleRow(schedule)),
+                  ...schedules.map(
+                    (schedule) => _ScheduleRow(
+                      schedule,
+                      status: statusForTodaySchedule(
+                        schedule,
+                        now: today,
+                        persistedCompleted: widget.attendanceController
+                            .wasScheduleCompleted(schedule, today),
+                      ),
+                    ),
+                  ),
               ],
             ),
           ),
@@ -468,22 +605,64 @@ class _TodaySchedulesCard extends StatelessWidget {
   }
 }
 
+typedef _ScheduledOccurrence = ({
+  String scheduleId,
+  AttendanceAction action,
+  DateTime scheduledAt,
+});
+
 class _ScheduleRow extends StatelessWidget {
-  const _ScheduleRow(this.schedule);
+  const _ScheduleRow(this.schedule, {required this.status});
 
   final AttendanceSchedule schedule;
+  final TodayScheduleStatus status;
 
   @override
   Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final completedColor = Theme.of(context).brightness == Brightness.dark
+        ? const Color(0xFF81C784)
+        : const Color(0xFF2E7D32);
+    final (icon, label, color) = switch (status) {
+      TodayScheduleStatus.upcoming => (
+        Icons.schedule_outlined,
+        '예정',
+        colors.primary,
+      ),
+      TodayScheduleStatus.completed => (
+        Icons.check_circle_outline_rounded,
+        '완료',
+        completedColor,
+      ),
+      TodayScheduleStatus.overdue => (
+        Icons.history_toggle_off_rounded,
+        '시간 지남',
+        colors.error,
+      ),
+    };
     return Padding(
       padding: const EdgeInsets.only(top: 10),
       child: Row(
         children: [
-          const Icon(Icons.schedule, size: 20),
+          Icon(icon, size: 20, color: color),
           const SizedBox(width: 10),
           Text(schedule.displayTime),
           const SizedBox(width: 12),
-          Text(schedule.action.label),
+          Expanded(child: Text(schedule.action.label)),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(999),
+            ),
+            child: Text(
+              label,
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                color: color,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
         ],
       ),
     );

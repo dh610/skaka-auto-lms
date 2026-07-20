@@ -157,6 +157,7 @@ class LocalNotificationScheduler implements NotificationScheduler {
         payload: jsonEncode({
           'scheduleId': reminder.schedule.id,
           'action': reminder.schedule.action.name,
+          'scheduledAt': reminder.dateTime.toIso8601String(),
         }),
       );
     }

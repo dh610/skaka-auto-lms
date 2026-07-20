@@ -71,6 +71,32 @@ void main() {
     expect(find.widgetWithText(TextFormField, '윤동현'), findsOneWidget);
   });
 
+  testWidgets('user can select and persist an app theme', (tester) async {
+    SharedPreferences.setMockInitialValues({
+      'profile.name': '윤동현',
+      'profile.region': 'P2',
+      'profile.classNumber': 8,
+    });
+    await tester.pumpWidget(
+      SkalaAttendanceApp(notificationScheduler: _NoOpNotificationScheduler()),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('테마 설정'));
+    await tester.pumpAndSettle();
+    expect(find.text('시스템 설정'), findsOneWidget);
+    expect(find.text('라이트 모드'), findsOneWidget);
+    expect(find.text('다크 모드'), findsOneWidget);
+
+    await tester.tap(find.text('다크 모드'));
+    await tester.pumpAndSettle();
+
+    final app = tester.widget<MaterialApp>(find.byType(MaterialApp));
+    expect(app.themeMode, ThemeMode.dark);
+    final preferences = await SharedPreferences.getInstance();
+    expect(preferences.getString('app.themeMode'), 'dark');
+  });
+
   testWidgets('schedule editor switches between weekly and one-time modes', (
     tester,
   ) async {
@@ -215,8 +241,12 @@ void main() {
       region: CampusRegion.pangyo5f,
       classNumber: 8,
     );
+    final scheduledAt = DateTime.now().subtract(const Duration(minutes: 1));
     final notifications = _NoOpNotificationScheduler()
-      ..emit('{"scheduleId":"check-in","action":"checkIn"}');
+      ..emit(
+        '{"scheduleId":"check-in","action":"checkIn",'
+        '"scheduledAt":"${scheduledAt.toIso8601String()}"}',
+      );
     final schedules = ScheduleController(ScheduleStore());
     await schedules.load();
     final gateway = _WidgetTestAttendanceGateway();
@@ -249,8 +279,12 @@ void main() {
       region: CampusRegion.pangyo5f,
       classNumber: 8,
     );
+    final scheduledAt = DateTime.now().subtract(const Duration(minutes: 1));
     final notifications = _NoOpNotificationScheduler()
-      ..emit('{"scheduleId":"leave","action":"leave"}');
+      ..emit(
+        '{"scheduleId":"leave","action":"leave",'
+        '"scheduledAt":"${scheduledAt.toIso8601String()}"}',
+      );
     final schedules = ScheduleController(ScheduleStore());
     await schedules.load();
     final links = StreamController<Uri>();

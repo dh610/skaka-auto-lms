@@ -5,16 +5,22 @@ import 'package:flutter/foundation.dart';
 
 import '../../profile/domain/user_profile.dart';
 import '../../schedule/domain/attendance_schedule.dart';
+import '../data/attendance_completion_store.dart';
 import '../data/attendance_gateway.dart';
 import '../domain/attendance_snapshot.dart';
 
 class AttendanceController extends ChangeNotifier {
-  AttendanceController(this._profile, this._gateway, {bool? isAndroid})
-    : _isAndroid = isAndroid ?? Platform.isAndroid;
+  AttendanceController(
+    this._profile,
+    this._gateway, {
+    bool? isAndroid,
+    this.completionStore,
+  }) : _isAndroid = isAndroid ?? Platform.isAndroid;
 
   UserProfile _profile;
   final AttendanceGateway _gateway;
   final bool _isAndroid;
+  final AttendanceCompletionStore? completionStore;
 
   bool _busy = false;
   String _message = 'Google 인증 후 출결 정보를 확인하세요.';
@@ -22,6 +28,7 @@ class AttendanceController extends ChangeNotifier {
   String? _token;
   _AttendanceRecovery? _recovery;
   bool _hasError = false;
+  Map<String, DateTime> _completedOccurrences = {};
 
   bool get busy => _busy;
   String get message => _message;
@@ -34,9 +41,31 @@ class AttendanceController extends ChangeNotifier {
     _ => 'Google 인증 다시 시도',
   };
 
+  bool wasScheduleCompleted(AttendanceSchedule schedule, DateTime date) {
+    final scheduledAt = DateTime(
+      date.year,
+      date.month,
+      date.day,
+      schedule.hour,
+      schedule.minute,
+    );
+    return _completedOccurrences.containsKey(
+      AttendanceCompletionStore.occurrenceKey(schedule.id, scheduledAt),
+    );
+  }
+
+  Future<void> loadCompletionHistory({DateTime? now}) async {
+    final store = completionStore;
+    if (store == null) return;
+    _completedOccurrences = await store.loadFor(now ?? DateTime.now());
+    notifyListeners();
+  }
+
   void updateProfile(UserProfile profile) {
     _profile = profile;
     _token = null;
+    _completedOccurrences = {};
+    if (completionStore case final store?) unawaited(store.clear());
     _setState(
       clearSnapshot: true,
       message: '사용자 정보가 변경되었습니다. 다시 인증해주세요.',
@@ -44,7 +73,10 @@ class AttendanceController extends ChangeNotifier {
     );
   }
 
-  Future<void> startAuthentication() async {
+  Future<void> startAuthentication({
+    String? scheduleId,
+    DateTime? scheduledAt,
+  }) async {
     _token = null;
     _setState(
       busy: true,
@@ -54,6 +86,9 @@ class AttendanceController extends ChangeNotifier {
     );
     try {
       await _gateway.startBrowserAuthentication(_profile);
+      if (scheduleId != null && scheduledAt != null) {
+        await _rememberScheduledOccurrence(scheduleId, scheduledAt);
+      }
       _setState(
         message: _isAndroid
             ? 'Chrome에서 Google 계정을 선택하세요. 인증 후 앱으로 돌아옵니다.'
@@ -225,6 +260,26 @@ class AttendanceController extends ChangeNotifier {
       _ => '예상하지 못한 오류가 발생했습니다. 잠시 후 다시 시도해주세요.',
     };
     return [operation, guidance, ?suffix].join(' ');
+  }
+
+  Future<void> _rememberScheduledOccurrence(
+    String scheduleId,
+    DateTime scheduledAt,
+  ) async {
+    final now = DateTime.now();
+    _completedOccurrences = await completionStore?.loadFor(now) ?? {};
+    if (!isSameDate(scheduledAt, now) ||
+        scheduledAt.isAfter(now.add(const Duration(minutes: 2)))) {
+      notifyListeners();
+      return;
+    }
+    final key = AttendanceCompletionStore.occurrenceKey(
+      scheduleId,
+      scheduledAt,
+    );
+    _completedOccurrences[key] = now;
+    await completionStore?.save(_completedOccurrences);
+    notifyListeners();
   }
 
   @override
