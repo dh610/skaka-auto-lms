@@ -17,7 +17,7 @@ class AttendanceController extends ChangeNotifier {
   final bool _isAndroid;
 
   bool _busy = false;
-  String _message = '아직 인증하지 않았습니다.';
+  String _message = 'Google 인증 후 출결 정보를 확인하세요.';
   AttendanceSnapshot? _snapshot;
   String? _token;
 

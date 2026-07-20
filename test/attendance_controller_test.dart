@@ -48,7 +48,7 @@ void main() {
     );
 
     expect(gateway.validatedToken, isNull);
-    expect(controller.message, '아직 인증하지 않았습니다.');
+    expect(controller.message, 'Google 인증 후 출결 정보를 확인하세요.');
     controller.dispose();
   });
 
