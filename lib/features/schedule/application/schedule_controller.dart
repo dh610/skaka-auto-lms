@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 
 import '../data/schedule_store.dart';
 import '../domain/attendance_schedule.dart';
+import '../domain/schedule_conflict.dart';
 import '../domain/training_calendar.dart';
 import 'notification_scheduler.dart';
 
@@ -41,7 +42,12 @@ class ScheduleController extends ChangeNotifier {
     }).toList();
   }
 
-  Future<void> saveSchedule(AttendanceSchedule schedule) async {
+  ScheduleConflict? conflictFor(AttendanceSchedule schedule) =>
+      findScheduleConflict(schedule, _schedules);
+
+  Future<ScheduleConflict?> saveSchedule(AttendanceSchedule schedule) async {
+    final conflict = conflictFor(schedule);
+    if (conflict != null) return conflict;
     final index = _schedules.indexWhere((item) => item.id == schedule.id);
     if (index == -1) {
       _schedules.add(schedule);
@@ -49,11 +55,13 @@ class ScheduleController extends ChangeNotifier {
       _schedules[index] = schedule;
     }
     await _persist(requestPermission: true);
+    return null;
   }
 
-  Future<void> setEnabled(AttendanceSchedule schedule, bool enabled) async {
-    await saveSchedule(schedule.copyWith(enabled: enabled));
-  }
+  Future<ScheduleConflict?> setEnabled(
+    AttendanceSchedule schedule,
+    bool enabled,
+  ) => saveSchedule(schedule.copyWith(enabled: enabled));
 
   Future<void> delete(AttendanceSchedule schedule) async {
     _schedules.removeWhere((item) => item.id == schedule.id);

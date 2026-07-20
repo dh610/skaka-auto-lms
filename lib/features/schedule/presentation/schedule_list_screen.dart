@@ -16,10 +16,33 @@ class ScheduleListScreen extends StatelessWidget {
   ]) async {
     final updated = await Navigator.of(context).push<AttendanceSchedule>(
       MaterialPageRoute(
-        builder: (_) => ScheduleEditScreen(initialSchedule: schedule),
+        builder: (_) => ScheduleEditScreen(
+          initialSchedule: schedule,
+          existingSchedules: controller.schedules,
+        ),
       ),
     );
-    if (updated != null) await controller.saveSchedule(updated);
+    if (updated != null) {
+      final conflict = await controller.saveSchedule(updated);
+      if (conflict != null && context.mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(conflict.message)));
+      }
+    }
+  }
+
+  Future<void> _setEnabled(
+    BuildContext context,
+    AttendanceSchedule schedule,
+    bool enabled,
+  ) async {
+    final conflict = await controller.setEnabled(schedule, enabled);
+    if (conflict != null && context.mounted) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(conflict.message)));
+    }
   }
 
   Future<void> _confirmDelete(
@@ -144,7 +167,7 @@ class ScheduleListScreen extends StatelessWidget {
                             Switch(
                               value: schedule.enabled,
                               onChanged: (enabled) =>
-                                  controller.setEnabled(schedule, enabled),
+                                  _setEnabled(context, schedule, enabled),
                             ),
                             IconButton(
                               tooltip: '삭제',

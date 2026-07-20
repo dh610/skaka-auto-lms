@@ -2,13 +2,19 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 
 import '../domain/attendance_schedule.dart';
+import '../domain/schedule_conflict.dart';
 import '../domain/training_calendar.dart';
 import 'schedule_visuals.dart';
 
 class ScheduleEditScreen extends StatefulWidget {
-  const ScheduleEditScreen({super.key, this.initialSchedule});
+  const ScheduleEditScreen({
+    super.key,
+    this.initialSchedule,
+    this.existingSchedules = const [],
+  });
 
   final AttendanceSchedule? initialSchedule;
+  final List<AttendanceSchedule> existingSchedules;
 
   @override
   State<ScheduleEditScreen> createState() => _ScheduleEditScreenState();
@@ -136,21 +142,27 @@ class _ScheduleEditScreenState extends State<ScheduleEditScreen> {
       return;
     }
     final initial = widget.initialSchedule;
-    Navigator.of(context).pop(
-      AttendanceSchedule(
-        id:
-            initial?.id ??
-            DateTime.now().microsecondsSinceEpoch.toRadixString(36),
-        action: _action,
-        hour: _time.hour,
-        minute: _time.minute,
-        recurrence: _recurrence,
-        weekdays: _recurrence == ScheduleRecurrence.weekly ? _weekdays : {},
-        date: _recurrence == ScheduleRecurrence.once ? _date : null,
-        excludePublicHolidays: _excludePublicHolidays,
-        enabled: _enabled,
-      ),
+    final schedule = AttendanceSchedule(
+      id:
+          initial?.id ??
+          DateTime.now().microsecondsSinceEpoch.toRadixString(36),
+      action: _action,
+      hour: _time.hour,
+      minute: _time.minute,
+      recurrence: _recurrence,
+      weekdays: _recurrence == ScheduleRecurrence.weekly ? _weekdays : {},
+      date: _recurrence == ScheduleRecurrence.once ? _date : null,
+      excludePublicHolidays: _excludePublicHolidays,
+      enabled: _enabled,
     );
+    final conflict = findScheduleConflict(schedule, widget.existingSchedules);
+    if (conflict != null) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(conflict.message)));
+      return;
+    }
+    Navigator.of(context).pop(schedule);
   }
 
   @override

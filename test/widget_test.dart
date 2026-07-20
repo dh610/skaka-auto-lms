@@ -110,6 +110,33 @@ void main() {
     expect(find.text('공휴일 제외'), findsNothing);
   });
 
+  testWidgets('schedule editor blocks an overlapping occurrence', (
+    tester,
+  ) async {
+    const existing = AttendanceSchedule(
+      id: 'existing',
+      action: AttendanceAction.checkOut,
+      hour: 9,
+      minute: 0,
+      weekdays: {DateTime.monday},
+      enabled: false,
+    );
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: ScheduleEditScreen(existingSchedules: [existing]),
+      ),
+    );
+
+    await tester.scrollUntilVisible(find.text('저장'), 300);
+    await tester.drag(find.byType(ListView), const Offset(0, -100));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('저장'));
+    await tester.pump();
+
+    expect(find.textContaining('이미 퇴실 일정이 있습니다.'), findsOneWidget);
+    expect(find.byType(ScheduleEditScreen), findsOneWidget);
+  });
+
   testWidgets('weekly editor shows holidays matching selected weekdays', (
     tester,
   ) async {
