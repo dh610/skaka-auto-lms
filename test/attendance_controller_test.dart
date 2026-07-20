@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:skala_attendance/features/attendance/application/attendance_controller.dart';
 import 'package:skala_attendance/features/attendance/data/attendance_gateway.dart';
@@ -82,6 +84,54 @@ void main() {
     controller.dispose();
   });
 
+  test('authentication timeout exposes a friendly retry action', () async {
+    final gateway = _FakeAttendanceGateway()
+      ..authenticationError = TimeoutException('timed out');
+    final controller = AttendanceController(profile, gateway, isAndroid: true);
+
+    await controller.startAuthentication();
+
+    expect(controller.hasError, isTrue);
+    expect(controller.canRetry, isTrue);
+    expect(controller.retryLabel, 'Google 인증 다시 시도');
+    expect(controller.message, contains('응답 시간이 초과되었습니다'));
+    expect(controller.message, isNot(contains('TimeoutException')));
+
+    gateway.authenticationError = null;
+    await controller.retry();
+    expect(gateway.authenticationCallCount, 2);
+    expect(controller.hasError, isFalse);
+    expect(controller.message, contains('Chrome'));
+    controller.dispose();
+  });
+
+  test(
+    'action failure retries status lookup without resending action',
+    () async {
+      final gateway = _FakeAttendanceGateway();
+      final controller = AttendanceController(
+        profile,
+        gateway,
+        isAndroid: true,
+      );
+      await controller.handleCallback(
+        Uri.parse('https://att.skala-ai.com/?token=test-token'),
+      );
+      gateway.fetchError = TimeoutException('timed out');
+
+      await controller.performAction(AttendanceAction.leave);
+
+      expect(controller.retryLabel, '출결 상태 다시 조회');
+      expect(gateway.recordCallCount, 1);
+      gateway.fetchError = null;
+      await controller.retry();
+      expect(gateway.recordCallCount, 1);
+      expect(controller.snapshot?.earlyLeaveTime, '12:00');
+      expect(controller.hasError, isFalse);
+      controller.dispose();
+    },
+  );
+
   test('available actions follow attendance state order', () {
     expect(const AttendanceSnapshot(networkAllowed: true).availableActions, {
       AttendanceAction.checkIn,
@@ -119,9 +169,15 @@ class _FakeAttendanceGateway implements AttendanceGateway {
   String? fetchedToken;
   String? recordedToken;
   AttendanceAction? recordedAction;
+  Object? authenticationError;
+  Object? fetchError;
+  int recordCallCount = 0;
+  int authenticationCallCount = 0;
 
   @override
   Future<void> startBrowserAuthentication(UserProfile profile) async {
+    authenticationCallCount++;
+    if (authenticationError case final error?) throw error;
     authenticationProfile = profile;
   }
 
@@ -132,12 +188,14 @@ class _FakeAttendanceGateway implements AttendanceGateway {
 
   @override
   Future<AttendanceSnapshot> fetchToday(String token) async {
+    if (fetchError case final error?) throw error;
     fetchedToken = token;
     return snapshot;
   }
 
   @override
   Future<void> recordAction(String token, AttendanceAction action) async {
+    recordCallCount++;
     recordedToken = token;
     recordedAction = action;
     if (action == AttendanceAction.leave) {

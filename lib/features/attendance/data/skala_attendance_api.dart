@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -22,23 +23,32 @@ class SkalaAttendanceApi implements AttendanceGateway {
     'https://lms.skala-ai.com/api/trainee/attendance/today/record',
   );
 
-  SkalaAttendanceApi({http.Client? client}) : _client = client ?? http.Client();
+  SkalaAttendanceApi({http.Client? client})
+    : _client = client ?? http.Client(),
+      _ownsClient = client == null;
 
-  final http.Client _client;
+  http.Client _client;
+  final bool _ownsClient;
 
   @override
   Future<void> startBrowserAuthentication(UserProfile profile) async {
-    final response = await _client
-        .post(
-          _preVerifyUri,
-          headers: const {'Content-Type': 'application/json'},
-          body: jsonEncode({
-            'traineeName': profile.name,
-            'regionId': profile.region.id,
-            'subGroupId': profile.subGroupId,
-          }),
-        )
-        .timeout(const Duration(seconds: 10));
+    // A rejected pre-verification request can leave a keep-alive connection
+    // bound to the previous mobile or VPN network. Always start authentication
+    // with a fresh client so a newly connected SKALA Wi-Fi is used immediately.
+    _resetOwnedClient();
+    final response = await _requestWithReconnect(
+      () => _client
+          .post(
+            _preVerifyUri,
+            headers: const {'Content-Type': 'application/json'},
+            body: jsonEncode({
+              'traineeName': profile.name,
+              'regionId': profile.region.id,
+              'subGroupId': profile.subGroupId,
+            }),
+          )
+          .timeout(const Duration(seconds: 10)),
+    );
     if (response.statusCode != 200) {
       throw StateError(_serverError(response));
     }
@@ -93,17 +103,21 @@ class SkalaAttendanceApi implements AttendanceGateway {
 
   @override
   Future<AttendanceSnapshot> fetchToday(String token) async {
-    final response = await _client
-        .get(
-          _todayUri.replace(
-            queryParameters: {'_t': '${DateTime.now().millisecondsSinceEpoch}'},
-          ),
-          headers: {
-            'Authorization': 'Bearer $token',
-            'Cache-Control': 'no-cache, no-store',
-          },
-        )
-        .timeout(const Duration(seconds: 10));
+    final response = await _requestWithReconnect(
+      () => _client
+          .get(
+            _todayUri.replace(
+              queryParameters: {
+                '_t': '${DateTime.now().millisecondsSinceEpoch}',
+              },
+            ),
+            headers: {
+              'Authorization': 'Bearer $token',
+              'Cache-Control': 'no-cache, no-store',
+            },
+          )
+          .timeout(const Duration(seconds: 10)),
+    );
     if (response.statusCode != 200) throw StateError(_serverError(response));
     return AttendanceSnapshot.fromJson(
       jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>,
@@ -135,6 +149,30 @@ class SkalaAttendanceApi implements AttendanceGateway {
     } catch (_) {
       return 'HTTP ${response.statusCode}';
     }
+  }
+
+  Future<http.Response> _requestWithReconnect(
+    Future<http.Response> Function() request,
+  ) async {
+    try {
+      return await request();
+    } catch (error) {
+      if (!_isTransientNetworkError(error)) rethrow;
+      _resetOwnedClient();
+      return request();
+    }
+  }
+
+  bool _isTransientNetworkError(Object error) {
+    return error is SocketException ||
+        error is TimeoutException ||
+        error is http.ClientException;
+  }
+
+  void _resetOwnedClient() {
+    if (!_ownsClient) return;
+    _client.close();
+    _client = http.Client();
   }
 
   @override

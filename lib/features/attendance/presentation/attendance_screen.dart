@@ -200,7 +200,11 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                 busy: _controller.busy,
                 message: _controller.message,
                 authenticated: _controller.authenticated,
+                hasError: _controller.hasError,
+                canRetry: _controller.canRetry,
+                retryLabel: _controller.retryLabel,
                 onAuthenticate: _controller.startAuthentication,
+                onRetry: _controller.retry,
               ),
               if (_controller.snapshot case final snapshot?) ...[
                 const SizedBox(height: 16),
@@ -231,19 +235,29 @@ class _AuthenticationCard extends StatelessWidget {
     required this.busy,
     required this.message,
     required this.authenticated,
+    required this.hasError,
+    required this.canRetry,
+    required this.retryLabel,
     required this.onAuthenticate,
+    required this.onRetry,
   });
 
   final bool busy;
   final String message;
   final bool authenticated;
+  final bool hasError;
+  final bool canRetry;
+  final String retryLabel;
   final Future<void> Function() onAuthenticate;
+  final Future<void> Function() onRetry;
 
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
     return Card(
-      color: authenticated
+      color: hasError
+          ? colors.errorContainer.withValues(alpha: 0.55)
+          : authenticated
           ? colors.primaryContainer.withValues(alpha: 0.55)
           : colors.surfaceContainerLow,
       child: Padding(
@@ -254,14 +268,20 @@ class _AuthenticationCard extends StatelessWidget {
             Row(
               children: [
                 CircleAvatar(
-                  backgroundColor: authenticated
+                  backgroundColor: hasError
+                      ? colors.error
+                      : authenticated
                       ? colors.primary
                       : colors.secondaryContainer,
-                  foregroundColor: authenticated
+                  foregroundColor: hasError
+                      ? colors.onError
+                      : authenticated
                       ? colors.onPrimary
                       : colors.onSecondaryContainer,
                   child: Icon(
-                    authenticated
+                    hasError
+                        ? Icons.error_outline_rounded
+                        : authenticated
                         ? Icons.verified_user_outlined
                         : Icons.lock_person_outlined,
                   ),
@@ -272,7 +292,11 @@ class _AuthenticationCard extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        authenticated ? '오늘 인증 완료' : 'Google 인증 필요',
+                        hasError
+                            ? '다시 확인이 필요합니다'
+                            : authenticated
+                            ? '오늘 인증 완료'
+                            : 'Google 인증 필요',
                         style: Theme.of(context).textTheme.titleMedium
                             ?.copyWith(fontWeight: FontWeight.w700),
                       ),
@@ -292,14 +316,24 @@ class _AuthenticationCard extends StatelessWidget {
             SizedBox(
               width: double.infinity,
               child: FilledButton.icon(
-                onPressed: busy ? null : onAuthenticate,
+                onPressed: busy
+                    ? null
+                    : canRetry
+                    ? onRetry
+                    : onAuthenticate,
                 icon: busy
                     ? const SizedBox.square(
                         dimension: 18,
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
                     : const Icon(Icons.open_in_browser_outlined),
-                label: Text(authenticated ? '다시 인증하기' : 'Google 인증 시작'),
+                label: Text(
+                  canRetry
+                      ? retryLabel
+                      : authenticated
+                      ? '다시 인증하기'
+                      : 'Google 인증 시작',
+                ),
               ),
             ),
           ],
