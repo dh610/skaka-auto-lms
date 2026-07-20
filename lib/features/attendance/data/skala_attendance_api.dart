@@ -11,6 +11,8 @@ import '../../schedule/domain/attendance_schedule.dart';
 import '../domain/attendance_snapshot.dart';
 import 'attendance_gateway.dart';
 
+typedef BrowserLauncher = Future<bool> Function(Uri uri, LaunchMode mode);
+
 class SkalaAttendanceApi implements AttendanceGateway {
   static const _browserChannel = MethodChannel('skala_attendance/browser');
   static final Uri _preVerifyUri = Uri.parse(
@@ -23,12 +25,22 @@ class SkalaAttendanceApi implements AttendanceGateway {
     'https://lms.skala-ai.com/api/trainee/attendance/today/record',
   );
 
-  SkalaAttendanceApi({http.Client? client})
-    : _client = client ?? http.Client(),
-      _ownsClient = client == null;
+  SkalaAttendanceApi({
+    http.Client? client,
+    BrowserLauncher? browserLauncher,
+    bool? isAndroid,
+  }) : _browserLauncher = browserLauncher ?? _launchBrowser,
+       _isAndroid = isAndroid ?? Platform.isAndroid,
+       _client = client ?? http.Client(),
+       _ownsClient = client == null;
 
   http.Client _client;
   final bool _ownsClient;
+  final BrowserLauncher _browserLauncher;
+  final bool _isAndroid;
+
+  static Future<bool> _launchBrowser(Uri uri, LaunchMode mode) =>
+      launchUrl(uri, mode: mode);
 
   @override
   Future<void> startBrowserAuthentication(UserProfile profile) async {
@@ -63,16 +75,16 @@ class SkalaAttendanceApi implements AttendanceGateway {
       '/api/auth/att-verify-oauth-start',
       {'pat': preAuthToken},
     );
-    if (Platform.isAndroid) {
+    if (_isAndroid) {
       await _browserChannel.invokeMethod<bool>('openCustomTab', {
         'url': oauthStart.toString(),
       });
     } else {
-      final opened = await launchUrl(
+      final opened = await _browserLauncher(
         oauthStart,
-        mode: LaunchMode.externalApplication,
+        LaunchMode.inAppBrowserView,
       );
-      if (!opened) throw StateError('외부 브라우저를 열 수 없습니다.');
+      if (!opened) throw StateError('앱 내 브라우저를 열 수 없습니다.');
     }
   }
 

@@ -21,7 +21,7 @@ Flutter 앱입니다. Android와 iOS 프로젝트를 함께 관리하며, 현재
 - 캠퍼스에 따른 반 선택 제한
   - 판교캠퍼스 4F: 1~5반
   - 판교캠퍼스 5F: 6~10반
-- Android Chrome Custom Tab 및 iOS 외부 브라우저를 통한 Google OAuth 시작
+- Android Chrome Custom Tab 및 iOS 앱 내 Safari 화면을 통한 Google OAuth 시작
 - Android App Link 콜백 수신 및 당일 출결 상태 조회
 - Android에서 입실, 퇴실, 외출, 복귀 요청 및 반영 결과 확인
 - 인증·상태 조회 실패에 대한 원인별 안내 및 안전한 재시도

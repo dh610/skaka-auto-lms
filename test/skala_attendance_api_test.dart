@@ -5,9 +5,43 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:skala_attendance/features/attendance/data/skala_attendance_api.dart';
+import 'package:skala_attendance/features/profile/domain/user_profile.dart';
 import 'package:skala_attendance/features/schedule/domain/attendance_schedule.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 void main() {
+  test('iOS authentication opens an in-app Safari browser view', () async {
+    late Uri openedUri;
+    late LaunchMode openedMode;
+    final client = MockClient(
+      (_) async =>
+          http.Response(jsonEncode({'preAuthToken': 'pre-token'}), 200),
+    );
+    final api = SkalaAttendanceApi(
+      client: client,
+      isAndroid: false,
+      browserLauncher: (uri, mode) async {
+        openedUri = uri;
+        openedMode = mode;
+        return true;
+      },
+    );
+
+    await api.startBrowserAuthentication(
+      const UserProfile(
+        name: '윤동현',
+        region: CampusRegion.pangyo5f,
+        classNumber: 8,
+      ),
+    );
+
+    expect(openedUri.host, 'lms.skala-ai.com');
+    expect(openedUri.path, '/api/auth/att-verify-oauth-start');
+    expect(openedUri.queryParameters['pat'], 'pre-token');
+    expect(openedMode, LaunchMode.inAppBrowserView);
+    api.close();
+  });
+
   test('record API sends bearer token and SKALA event type', () async {
     late http.Request captured;
     final client = MockClient((request) async {

@@ -92,7 +92,7 @@ class AttendanceController extends ChangeNotifier {
       _setState(
         message: _isAndroid
             ? 'Chrome에서 Google 계정을 선택하세요. 인증 후 앱으로 돌아옵니다.'
-            : 'Safari에서 Google 계정을 선택한 뒤 SKALA 웹 화면에서 원하는 동작을 수행하세요.',
+            : '앱 내 Safari 화면에서 Google 계정을 선택한 뒤 SKALA 웹 화면에서 원하는 동작을 수행하세요.',
       );
     } catch (error) {
       _setState(

@@ -66,14 +66,16 @@ Android에서는 다음 플랫폼 구성이 구현되어 있다.
 ## 현재 iOS 구현
 
 iOS에서도 일정 관리, 공휴일 제외 및 로컬 알림 예약 코드는 포함되어 있다. Google
-인증은 Safari 등 외부 브라우저로 열 수 있다.
+인증은 앱 위에 표시되는 `SFSafariViewController` 기반 Safari 화면으로 연다. 사용자는
+상단의 닫기 버튼으로 앱에 돌아올 수 있으며 일반 WebView처럼 비밀번호나 쿠키를 앱이
+직접 취급하지 않는다.
 
 그러나 현재 프로젝트에는 `att.skala-ai.com`을 이 앱의 Universal Link로 검증하기
 위한 Associated Domains 설정과 해당 도메인의 `apple-app-site-association` 연결이
 구성되어 있지 않다. 이 도메인 서버 설정은 도메인 운영자의 협조가 필요하다.
 
 그 결과 현재 iOS에서는 인증 후 콜백을 앱이 신뢰할 수 있는 방식으로 수신하여 출결
-토큰을 넘겨받는 흐름이 완성되지 않았다. 앱은 Safari에서 SKALA 웹 화면을 열고
+토큰을 넘겨받는 흐름이 완성되지 않았다. 앱은 앱 내 Safari 화면에서 SKALA 웹 화면을 열고
 사용자가 웹에서 직접 원하는 출결 동작을 수행하도록 안내한다.
 
 이는 iOS에서 출결 API 호출이 원천적으로 불가능하다는 뜻은 아니다. 올바른 Universal
@@ -109,7 +111,7 @@ iOS는 로컬 알림 표시는 지원하지만 임의 시각의 지속적인 백
 | 사용자 정보 및 일정 관리 | 지원 | 지원 |
 | 공휴일 제외 | 지원 | 지원 |
 | 로컬 일정 알림 | 지원 | 지원 |
-| 브라우저 Google 인증 시작 | Chrome Custom Tab | Safari 등 외부 브라우저 |
+| 브라우저 Google 인증 시작 | Chrome Custom Tab | 앱 내 Safari 화면 |
 | 인증 후 앱 콜백 | App Link로 구현 | Universal Link 미구성 |
 | 앱에서 당일 상태 조회 | 지원 | 미지원 |
 | 앱에서 출결 이벤트 전송 | 지원 | 미지원 |
