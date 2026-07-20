@@ -170,33 +170,42 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
       listenable: _controller,
       builder: (context, _) {
         return Scaffold(
-          appBar: AppBar(title: const Text('SKALA 출결 도우미')),
+          appBar: AppBar(title: const Text('SKALA 출결')),
           body: ListView(
-            padding: const EdgeInsets.all(20),
+            padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
             children: [
+              Text(
+                '${widget.profile.name}님, 안녕하세요',
+                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                '오늘의 출결 일정과 상태를 확인하세요.',
+                style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: 20),
               _ProfileCard(
                 profile: widget.profile,
-                platformDescription: _controller.platformDescription,
                 busy: _controller.busy,
                 onEditProfile: widget.onEditProfile,
               ),
               const SizedBox(height: 16),
               _TodaySchedulesCard(controller: widget.scheduleController),
               const SizedBox(height: 16),
-              FilledButton.icon(
-                onPressed: _controller.busy
-                    ? null
-                    : _controller.startAuthentication,
-                icon: _controller.busy
-                    ? const SizedBox.square(
-                        dimension: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.login),
-                label: const Text('Google 인증 시작'),
+              _AuthenticationCard(
+                busy: _controller.busy,
+                message: _controller.message,
+                authenticated: _controller.authenticated,
+                hasError: _controller.hasError,
+                canRetry: _controller.canRetry,
+                retryLabel: _controller.retryLabel,
+                onAuthenticate: _controller.startAuthentication,
+                onRetry: _controller.retry,
               ),
-              const SizedBox(height: 16),
-              Text(_controller.message),
               if (_controller.snapshot case final snapshot?) ...[
                 const SizedBox(height: 16),
                 _StatusCard(
@@ -206,11 +215,130 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                 ),
               ],
               const SizedBox(height: 24),
-              const Text('출결 동작은 확인창에서 승인한 경우에만 서버로 전송됩니다.'),
+              Text(
+                'Google 인증은 브라우저에서 직접 진행하며 인증 정보는 기기에 저장하지 않습니다.',
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+              ),
             ],
           ),
         );
       },
+    );
+  }
+}
+
+class _AuthenticationCard extends StatelessWidget {
+  const _AuthenticationCard({
+    required this.busy,
+    required this.message,
+    required this.authenticated,
+    required this.hasError,
+    required this.canRetry,
+    required this.retryLabel,
+    required this.onAuthenticate,
+    required this.onRetry,
+  });
+
+  final bool busy;
+  final String message;
+  final bool authenticated;
+  final bool hasError;
+  final bool canRetry;
+  final String retryLabel;
+  final Future<void> Function() onAuthenticate;
+  final Future<void> Function() onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Card(
+      color: hasError
+          ? colors.errorContainer.withValues(alpha: 0.55)
+          : authenticated
+          ? colors.primaryContainer.withValues(alpha: 0.55)
+          : colors.surfaceContainerLow,
+      child: Padding(
+        padding: const EdgeInsets.all(18),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                CircleAvatar(
+                  backgroundColor: hasError
+                      ? colors.error
+                      : authenticated
+                      ? colors.primary
+                      : colors.secondaryContainer,
+                  foregroundColor: hasError
+                      ? colors.onError
+                      : authenticated
+                      ? colors.onPrimary
+                      : colors.onSecondaryContainer,
+                  child: Icon(
+                    hasError
+                        ? Icons.error_outline_rounded
+                        : authenticated
+                        ? Icons.verified_user_outlined
+                        : Icons.lock_person_outlined,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        hasError
+                            ? '다시 확인이 필요합니다'
+                            : authenticated
+                            ? '오늘 인증 완료'
+                            : 'Google 인증 필요',
+                        style: Theme.of(context).textTheme.titleMedium
+                            ?.copyWith(fontWeight: FontWeight.w700),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        message,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: colors.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                onPressed: busy
+                    ? null
+                    : canRetry
+                    ? onRetry
+                    : onAuthenticate,
+                icon: busy
+                    ? const SizedBox.square(
+                        dimension: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.open_in_browser_outlined),
+                label: Text(
+                  canRetry
+                      ? retryLabel
+                      : authenticated
+                      ? '다시 인증하기'
+                      : 'Google 인증 시작',
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -255,8 +383,8 @@ class _EarlyCheckOutConfirmationDialogState
         reachedThreshold
             ? '${widget.profileName}님, 퇴실 가능 시간이 되었습니다.\n\n'
                   '전송된 출결 기록은 앱에서 취소할 수 없습니다.'
-            : '${widget.profileName}님, 아직 17시 50분 이전입니다.\n'
-                  '17시 50분까지 ${formatRemainingTime(remaining)} 남았습니다.\n'
+            : '${widget.profileName}님, 아직 오후 5시 50분 이전입니다.\n'
+                  '오후 5시 50분까지 ${formatRemainingTime(remaining)} 남았습니다.\n'
                   '정말 퇴실 처리하시겠습니까?\n\n'
                   '전송된 출결 기록은 앱에서 취소할 수 없습니다.',
       ),
@@ -295,6 +423,11 @@ class _TodaySchedulesCard extends StatelessWidget {
               children: [
                 Row(
                   children: [
+                    Icon(
+                      Icons.event_available_outlined,
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
+                    const SizedBox(width: 10),
                     Expanded(
                       child: Text(
                         '오늘 예정된 동작',
@@ -348,7 +481,7 @@ class _ScheduleRow extends StatelessWidget {
         children: [
           const Icon(Icons.schedule, size: 20),
           const SizedBox(width: 10),
-          Text(schedule.formattedTime),
+          Text(schedule.displayTime),
           const SizedBox(width: 12),
           Text(schedule.action.label),
         ],
@@ -360,13 +493,11 @@ class _ScheduleRow extends StatelessWidget {
 class _ProfileCard extends StatelessWidget {
   const _ProfileCard({
     required this.profile,
-    required this.platformDescription,
     required this.busy,
     required this.onEditProfile,
   });
 
   final UserProfile profile;
-  final String platformDescription;
   final bool busy;
   final Future<void> Function() onEditProfile;
 
@@ -375,26 +506,25 @@ class _ProfileCard extends StatelessWidget {
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(18),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            Text(
-              platformDescription,
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
-            const SizedBox(height: 12),
-            Text(
-              '${profile.name} · ${profile.region.label} · ${profile.classLabel}',
-            ),
-            const Text('Google 계정은 브라우저에서 직접 선택합니다.'),
-            const SizedBox(height: 10),
-            Align(
-              alignment: Alignment.centerRight,
-              child: TextButton.icon(
-                onPressed: busy ? null : onEditProfile,
-                icon: const Icon(Icons.edit_outlined),
-                label: const Text('사용자 정보 변경'),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '${profile.region.label} · ${profile.classLabel}',
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
               ),
+            ),
+            TextButton(
+              onPressed: busy ? null : onEditProfile,
+              child: const Text('사용자 정보 변경'),
             ),
           ],
         ),

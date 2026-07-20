@@ -1,8 +1,8 @@
 package com.ddhhyy.skala_attendance
 
 import android.content.ActivityNotFoundException
-import android.content.Intent
 import android.net.Uri
+import androidx.browser.customtabs.CustomTabsIntent
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.plugin.common.MethodChannel
@@ -12,7 +12,7 @@ class MainActivity : FlutterActivity() {
         super.configureFlutterEngine(flutterEngine)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "skala_attendance/browser")
             .setMethodCallHandler { call, result ->
-                if (call.method != "openChrome") {
+                if (call.method != "openCustomTab") {
                     result.notImplemented()
                     return@setMethodCallHandler
                 }
@@ -21,16 +21,17 @@ class MainActivity : FlutterActivity() {
                     result.error("INVALID_URL", "URL is required", null)
                     return@setMethodCallHandler
                 }
-                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(rawUrl)).apply {
-                    addCategory(Intent.CATEGORY_BROWSABLE)
-                    setPackage("com.android.chrome")
-                }
+                val uri = Uri.parse(rawUrl)
+                val customTab = CustomTabsIntent.Builder()
+                    .setShowTitle(true)
+                    .build()
+                customTab.intent.setPackage("com.android.chrome")
                 try {
-                    startActivity(intent)
+                    customTab.launchUrl(this, uri)
                     result.success(true)
                 } catch (_: ActivityNotFoundException) {
-                    intent.setPackage(null)
-                    startActivity(intent)
+                    customTab.intent.setPackage(null)
+                    customTab.launchUrl(this, uri)
                     result.success(false)
                 }
             }

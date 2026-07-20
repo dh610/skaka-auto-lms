@@ -8,6 +8,7 @@ import '../features/schedule/application/schedule_controller.dart';
 import '../features/schedule/application/notification_scheduler.dart';
 import '../features/schedule/data/schedule_store.dart';
 import '../features/schedule/data/local_notification_scheduler.dart';
+import 'app_theme.dart';
 
 class SkalaAttendanceApp extends StatefulWidget {
   const SkalaAttendanceApp({super.key, this.notificationScheduler});
@@ -84,10 +85,9 @@ class _SkalaAttendanceAppState extends State<SkalaAttendanceApp> {
       navigatorKey: _navigatorKey,
       debugShowCheckedModeBanner: false,
       title: 'SKALA 출결 도우미',
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF6B35FF)),
-        useMaterial3: true,
-      ),
+      theme: AppTheme.light(),
+      darkTheme: AppTheme.dark(),
+      themeMode: ThemeMode.system,
       home: _loading
           ? const Scaffold(body: Center(child: CircularProgressIndicator()))
           : _profile == null

@@ -61,6 +61,31 @@ class LocalNotificationScheduler implements NotificationScheduler {
   }
 
   @override
+  Future<bool> arePermissionsGranted() async {
+    await initialize();
+    if (Platform.isAndroid) {
+      final android = _plugin
+          .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin
+          >();
+      final notificationsAllowed =
+          await android?.areNotificationsEnabled() ?? true;
+      final exactAllowed =
+          await android?.canScheduleExactNotifications() ?? true;
+      return notificationsAllowed && exactAllowed;
+    }
+    if (Platform.isIOS) {
+      final permissions = await _plugin
+          .resolvePlatformSpecificImplementation<
+            IOSFlutterLocalNotificationsPlugin
+          >()
+          ?.checkPermissions();
+      return permissions?.isEnabled ?? false;
+    }
+    return false;
+  }
+
+  @override
   Future<bool> requestPermissions() async {
     await initialize();
     if (Platform.isAndroid) {
@@ -136,31 +161,5 @@ class LocalNotificationScheduler implements NotificationScheduler {
       );
     }
     return reminders.length;
-  }
-
-  @override
-  Future<void> showTestNotification() async {
-    await initialize();
-    await _plugin.show(
-      id: 999,
-      title: 'SKALA 출결 알림 테스트',
-      body: '알림이 정상적으로 설정되었습니다.',
-      notificationDetails: const NotificationDetails(
-        android: AndroidNotificationDetails(
-          _channelId,
-          _channelName,
-          channelDescription: _channelDescription,
-          importance: Importance.high,
-          priority: Priority.high,
-          icon: 'ic_notification',
-        ),
-        iOS: DarwinNotificationDetails(
-          presentAlert: true,
-          presentBadge: true,
-          presentSound: true,
-        ),
-      ),
-      payload: jsonEncode({'scheduleId': 'test', 'action': 'checkIn'}),
-    );
   }
 }

@@ -14,17 +14,20 @@ class ScheduleController extends ChangeNotifier {
   bool _loading = true;
   String _notificationMessage = '알림 권한을 설정하면 지정 시각에 안내합니다.';
   int _pendingNotificationCount = 0;
+  bool _notificationsConfigured = false;
 
   List<AttendanceSchedule> get schedules => List.unmodifiable(_schedules);
   bool get loading => _loading;
   String get notificationMessage => _notificationMessage;
   int get pendingNotificationCount => _pendingNotificationCount;
+  bool get notificationsConfigured => _notificationsConfigured;
 
   Future<void> load() async {
     _schedules = await _store.load();
     _sort();
     _loading = false;
     await _syncNotifications();
+    await refreshNotificationStatus();
     notifyListeners();
   }
 
@@ -63,6 +66,7 @@ class ScheduleController extends ChangeNotifier {
     try {
       final exact = await scheduler.requestPermissions();
       await _syncNotifications();
+      _notificationsConfigured = exact;
       _notificationMessage = exact
           ? '정확한 알림이 설정되었습니다.'
           : '정확한 알림 권한이 없어 알림 시각이 다소 늦어질 수 있습니다.';
@@ -72,14 +76,13 @@ class ScheduleController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> showTestNotification() async {
+  Future<void> refreshNotificationStatus() async {
     final scheduler = _notificationScheduler;
     if (scheduler == null) return;
     try {
-      await scheduler.showTestNotification();
-      _notificationMessage = '테스트 알림을 전송했습니다.';
-    } catch (error) {
-      _notificationMessage = '테스트 알림 실패: $error';
+      _notificationsConfigured = await scheduler.arePermissionsGranted();
+    } catch (_) {
+      _notificationsConfigured = false;
     }
     notifyListeners();
   }
@@ -101,7 +104,7 @@ class ScheduleController extends ChangeNotifier {
     try {
       _pendingNotificationCount = await scheduler.sync(_schedules);
       if (_pendingNotificationCount > 0) {
-        _notificationMessage = '예정된 알림 $_pendingNotificationCount건이 등록되어 있습니다.';
+        _notificationMessage = '설정한 일정의 알림이 예약되어 있습니다.';
       } else {
         _notificationMessage = '앞으로 예정된 알림이 없습니다.';
       }

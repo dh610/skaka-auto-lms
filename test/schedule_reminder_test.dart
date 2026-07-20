@@ -68,6 +68,7 @@ void main() {
     expect(notifications.permissionRequests, 1);
     expect(notifications.lastSchedules, [schedule]);
     expect(controller.pendingNotificationCount, 1);
+    expect(controller.notificationsConfigured, isTrue);
     controller.dispose();
   });
 }
@@ -76,6 +77,9 @@ class _FakeNotificationScheduler implements NotificationScheduler {
   final _tapPayload = ValueNotifier<String?>(null);
   int permissionRequests = 0;
   List<AttendanceSchedule> lastSchedules = [];
+
+  @override
+  Future<bool> arePermissionsGranted() async => false;
 
   @override
   ValueListenable<String?> get tapPayload => _tapPayload;
@@ -97,7 +101,4 @@ class _FakeNotificationScheduler implements NotificationScheduler {
     lastSchedules = schedules.toList();
     return schedules.length;
   }
-
-  @override
-  Future<void> showTestNotification() async {}
 }

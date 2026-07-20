@@ -11,7 +11,7 @@ bool requiresAttendanceConfirmation(AttendanceAction action, {DateTime? now}) {
 String attendanceConfirmationMessage(AttendanceAction action) {
   return switch (action) {
     AttendanceAction.leave => '외출은 하루에 한 번밖에 할 수 없습니다.\n정말 외출 처리하시겠습니까?',
-    AttendanceAction.checkOut => '아직 17시 50분 이전입니다.\n정말 퇴실 처리하시겠습니까?',
+    AttendanceAction.checkOut => '아직 오후 5시 50분 이전입니다.\n정말 퇴실 처리하시겠습니까?',
     _ => '${action.label} 기록을 전송하시겠습니까?',
   };
 }
