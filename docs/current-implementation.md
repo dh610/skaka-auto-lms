@@ -16,7 +16,7 @@
 사용자 일정 저장
   → OS 로컬 알림 예약
   → 사용자가 알림 선택
-  → 외부 브라우저에서 Google 인증
+  → Chrome Custom Tab에서 Google 인증
   → Android App Link로 앱 복귀
   → 당일 상태 조회
   → 동작별 확인 정책 적용
@@ -64,7 +64,7 @@
 ### 인증과 Android 출결 처리
 
 - 사용자 정보로 SKALA 사전 확인 API 호출
-- 외부 Chrome에서 Google OAuth 시작
+- Chrome Custom Tab에서 Google OAuth 시작
 - `att.skala-ai.com` Android App Link 콜백 수신
 - JWT 형식, 만료 시각, 한국 날짜, 지역 및 반 일치 여부 검증
 - 토큰을 디스크에 저장하지 않고 앱 프로세스 메모리에서만 사용
@@ -99,7 +99,7 @@
 |---|---|---|
 | 프로필·일정·공휴일 계산 | 지원 | 지원 |
 | 로컬 알림 | 지원 | 지원 코드 포함 |
-| 외부 브라우저 인증 시작 | Chrome | Safari 등 시스템 브라우저 |
+| 브라우저 인증 시작 | Chrome Custom Tab | Safari 등 시스템 브라우저 |
 | 인증 후 앱 복귀 | 지원 | 미구성 |
 | 앱 내 상태 조회·출결 전송 | 지원 | 미지원 |
 
@@ -140,7 +140,7 @@ payload에 기록하지 않는 것을 원칙으로 한다.
 
 - Flutter 정적 분석 통과
 - 모델, 일정, 공휴일, 알림 계획, API 및 주요 위젯 흐름 자동 테스트
-- Android 실기기에서 외부 브라우저 인증, App Link 복귀, 상태 조회 검증
+- Android 실기기에서 Chrome Custom Tab 인증, App Link 복귀, 상태 조회 검증
 - Android 실기기에서 예약 알림 탭 후 인증 및 예약 동작 연결 검증
 - 인증·상태 조회·출결 처리 실패 시 원인별 안내와 안전한 재시도 동작 제공
 - iOS 실기기 검증은 아직 수행하지 않음

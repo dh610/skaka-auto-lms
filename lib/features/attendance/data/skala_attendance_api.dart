@@ -64,7 +64,7 @@ class SkalaAttendanceApi implements AttendanceGateway {
       {'pat': preAuthToken},
     );
     if (Platform.isAndroid) {
-      await _browserChannel.invokeMethod<bool>('openChrome', {
+      await _browserChannel.invokeMethod<bool>('openCustomTab', {
         'url': oauthStart.toString(),
       });
     } else {

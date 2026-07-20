@@ -52,7 +52,7 @@ Google 비밀번호와 브라우저 쿠키는 앱에 저장하지 않으며, 출
 
 Android에서는 다음 플랫폼 구성이 구현되어 있다.
 
-- 네이티브 채널을 통해 Chrome으로 인증 URL 열기
+- 네이티브 채널을 통해 Chrome Custom Tab으로 인증 URL 열기
 - `https://att.skala-ai.com/...` 링크를 앱이 수신하도록 Intent Filter 등록
 - 인증 콜백의 토큰을 사용자 지역·반·날짜·만료 정보와 대조
 - 당일 출결 상태 조회
