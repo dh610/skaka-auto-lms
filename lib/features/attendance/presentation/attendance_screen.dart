@@ -170,10 +170,24 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
       listenable: _controller,
       builder: (context, _) {
         return Scaffold(
-          appBar: AppBar(title: const Text('SKALA 출결 도우미')),
+          appBar: AppBar(title: const Text('SKALA 출결')),
           body: ListView(
-            padding: const EdgeInsets.all(20),
+            padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
             children: [
+              Text(
+                '${widget.profile.name}님, 안녕하세요',
+                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                '오늘의 출결 일정과 상태를 확인하세요.',
+                style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: 20),
               _ProfileCard(
                 profile: widget.profile,
                 platformDescription: _controller.platformDescription,
@@ -183,20 +197,12 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
               const SizedBox(height: 16),
               _TodaySchedulesCard(controller: widget.scheduleController),
               const SizedBox(height: 16),
-              FilledButton.icon(
-                onPressed: _controller.busy
-                    ? null
-                    : _controller.startAuthentication,
-                icon: _controller.busy
-                    ? const SizedBox.square(
-                        dimension: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.login),
-                label: const Text('Google 인증 시작'),
+              _AuthenticationCard(
+                busy: _controller.busy,
+                message: _controller.message,
+                authenticated: _controller.authenticated,
+                onAuthenticate: _controller.startAuthentication,
               ),
-              const SizedBox(height: 16),
-              Text(_controller.message),
               if (_controller.snapshot case final snapshot?) ...[
                 const SizedBox(height: 16),
                 _StatusCard(
@@ -206,11 +212,100 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                 ),
               ],
               const SizedBox(height: 24),
-              const Text('출결 동작은 확인창에서 승인한 경우에만 서버로 전송됩니다.'),
+              Text(
+                'Google 인증은 브라우저에서 직접 진행하며 인증 정보는 기기에 저장하지 않습니다.',
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+              ),
             ],
           ),
         );
       },
+    );
+  }
+}
+
+class _AuthenticationCard extends StatelessWidget {
+  const _AuthenticationCard({
+    required this.busy,
+    required this.message,
+    required this.authenticated,
+    required this.onAuthenticate,
+  });
+
+  final bool busy;
+  final String message;
+  final bool authenticated;
+  final Future<void> Function() onAuthenticate;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Card(
+      color: authenticated
+          ? colors.primaryContainer.withValues(alpha: 0.55)
+          : colors.surfaceContainerLow,
+      child: Padding(
+        padding: const EdgeInsets.all(18),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                CircleAvatar(
+                  backgroundColor: authenticated
+                      ? colors.primary
+                      : colors.secondaryContainer,
+                  foregroundColor: authenticated
+                      ? colors.onPrimary
+                      : colors.onSecondaryContainer,
+                  child: Icon(
+                    authenticated
+                        ? Icons.verified_user_outlined
+                        : Icons.lock_person_outlined,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        authenticated ? '오늘 인증 완료' : 'Google 인증 필요',
+                        style: Theme.of(context).textTheme.titleMedium
+                            ?.copyWith(fontWeight: FontWeight.w700),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        message,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: colors.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                onPressed: busy ? null : onAuthenticate,
+                icon: busy
+                    ? const SizedBox.square(
+                        dimension: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.open_in_browser_outlined),
+                label: Text(authenticated ? '다시 인증하기' : 'Google 인증 시작'),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -295,6 +390,11 @@ class _TodaySchedulesCard extends StatelessWidget {
               children: [
                 Row(
                   children: [
+                    Icon(
+                      Icons.event_available_outlined,
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
+                    const SizedBox(width: 10),
                     Expanded(
                       child: Text(
                         '오늘 예정된 동작',
@@ -375,26 +475,42 @@ class _ProfileCard extends StatelessWidget {
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(18),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            Text(
-              platformDescription,
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
-            const SizedBox(height: 12),
-            Text(
-              '${profile.name} · ${profile.region.label} · ${profile.classLabel}',
-            ),
-            const Text('Google 계정은 브라우저에서 직접 선택합니다.'),
-            const SizedBox(height: 10),
-            Align(
-              alignment: Alignment.centerRight,
-              child: TextButton.icon(
-                onPressed: busy ? null : onEditProfile,
-                icon: const Icon(Icons.edit_outlined),
-                label: const Text('사용자 정보 변경'),
+            CircleAvatar(
+              radius: 24,
+              backgroundColor: Theme.of(context).colorScheme.primaryContainer,
+              foregroundColor: Theme.of(context).colorScheme.onPrimaryContainer,
+              child: Text(
+                profile.name.characters.first,
+                style: const TextStyle(fontWeight: FontWeight.w800),
               ),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '${profile.region.label} · ${profile.classLabel}',
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    platformDescription,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            TextButton(
+              onPressed: busy ? null : onEditProfile,
+              child: const Text('사용자 정보 변경'),
             ),
           ],
         ),
