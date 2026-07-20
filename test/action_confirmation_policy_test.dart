@@ -52,7 +52,7 @@ void main() {
     );
     expect(
       attendanceConfirmationMessage(AttendanceAction.checkOut),
-      contains('17시 50분 이전'),
+      contains('오후 5시 50분 이전'),
     );
   });
 

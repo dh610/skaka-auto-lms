@@ -1,7 +1,9 @@
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 
 import '../domain/attendance_schedule.dart';
 import '../domain/training_calendar.dart';
+import 'schedule_visuals.dart';
 
 class ScheduleEditScreen extends StatefulWidget {
   const ScheduleEditScreen({super.key, this.initialSchedule});
@@ -56,7 +58,13 @@ class _ScheduleEditScreenState extends State<ScheduleEditScreen> {
   }
 
   Future<void> _pickTime() async {
-    final selected = await showTimePicker(context: context, initialTime: _time);
+    final selected = await showModalBottomSheet<TimeOfDay>(
+      context: context,
+      showDragHandle: true,
+      useSafeArea: true,
+      isScrollControlled: true,
+      builder: (_) => _TimeWheelPicker(initialTime: _time),
+    );
     if (selected != null && mounted) setState(() => _time = selected);
   }
 
@@ -151,28 +159,33 @@ class _ScheduleEditScreenState extends State<ScheduleEditScreen> {
     return Scaffold(
       appBar: AppBar(title: Text(_editing ? '일정 수정' : '일정 추가')),
       body: ListView(
-        padding: const EdgeInsets.all(24),
+        padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
         children: [
-          DropdownButtonFormField<AttendanceAction>(
-            initialValue: _action,
-            decoration: const InputDecoration(
-              labelText: '동작',
-              border: OutlineInputBorder(),
-            ),
-            items: AttendanceAction.values
-                .map(
-                  (action) => DropdownMenuItem(
-                    value: action,
-                    child: Text(action.label),
-                  ),
-                )
-                .toList(),
-            onChanged: (action) {
-              if (action != null) setState(() => _action = action);
-            },
+          _SectionTitle(
+            title: '출결 동작',
+            description: '알림을 눌러 인증한 뒤 처리할 동작을 선택하세요.',
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: AttendanceAction.values.map((action) {
+              return ChoiceChip(
+                avatar: Icon(action.icon, size: 18),
+                label: Text(action.label),
+                selected: _action == action,
+                onSelected: (_) => setState(() => _action = action),
+              );
+            }).toList(),
+          ),
+          const SizedBox(height: 28),
+          const _SectionTitle(
+            title: '반복 방식',
+            description: '요일을 반복하거나 과정 기간 내 날짜를 직접 지정할 수 있습니다.',
+          ),
+          const SizedBox(height: 12),
           SegmentedButton<ScheduleRecurrence>(
+            expandedInsets: EdgeInsets.zero,
             segments: ScheduleRecurrence.values
                 .map(
                   (value) =>
@@ -186,57 +199,76 @@ class _ScheduleEditScreenState extends State<ScheduleEditScreen> {
           ),
           const SizedBox(height: 20),
           if (_recurrence == ScheduleRecurrence.weekly) ...[
-            Text('요일', style: Theme.of(context).textTheme.titleMedium),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 8,
-              children: weekdayLabels.entries.map((entry) {
-                return FilterChip(
-                  label: Text(entry.value),
-                  selected: _weekdays.contains(entry.key),
-                  onSelected: (selected) {
-                    setState(() {
-                      if (selected) {
-                        _weekdays.add(entry.key);
-                      } else {
-                        _weekdays.remove(entry.key);
-                      }
-                    });
-                  },
-                );
-              }).toList(),
-            ),
-            SwitchListTile(
-              contentPadding: EdgeInsets.zero,
-              title: const Text('공휴일 제외'),
-              subtitle: const Text('2026년 과정 기간의 법정공휴일에는 실행하지 않습니다.'),
-              value: _excludePublicHolidays,
-              onChanged: (value) {
-                setState(() => _excludePublicHolidays = value);
-              },
-            ),
-            Align(
-              alignment: Alignment.centerLeft,
-              child: TextButton.icon(
-                onPressed: _weekdays.isEmpty ? null : _showExcludedHolidays,
-                icon: const Icon(Icons.calendar_month_outlined),
-                label: const Text('제외되는 공휴일 보기'),
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '실행 요일',
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Wrap(
+                      spacing: 8,
+                      children: weekdayLabels.entries.map((entry) {
+                        return FilterChip(
+                          label: Text(entry.value),
+                          selected: _weekdays.contains(entry.key),
+                          onSelected: (selected) {
+                            setState(() {
+                              if (selected) {
+                                _weekdays.add(entry.key);
+                              } else {
+                                _weekdays.remove(entry.key);
+                              }
+                            });
+                          },
+                        );
+                      }).toList(),
+                    ),
+                    const Divider(height: 28),
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('공휴일 제외'),
+                      subtitle: const Text('2026년 과정 기간의 법정공휴일에는 실행하지 않습니다.'),
+                      value: _excludePublicHolidays,
+                      onChanged: (value) {
+                        setState(() => _excludePublicHolidays = value);
+                      },
+                    ),
+                    TextButton.icon(
+                      onPressed: _weekdays.isEmpty
+                          ? null
+                          : _showExcludedHolidays,
+                      icon: const Icon(Icons.calendar_month_outlined),
+                      label: const Text('제외되는 공휴일 보기'),
+                    ),
+                  ],
+                ),
               ),
             ),
           ] else ...[
-            ListTile(
-              contentPadding: const EdgeInsets.symmetric(horizontal: 16),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(4),
-                side: Divider.createBorderSide(context),
+            Card(
+              child: ListTile(
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 8,
+                ),
+                leading: const Icon(Icons.event_outlined),
+                title: const Text('실행 날짜'),
+                subtitle: holidayName == null ? null : Text(holidayName),
+                trailing: Text(
+                  formatDate(_date),
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                onTap: _pickDate,
               ),
-              title: const Text('실행 날짜'),
-              subtitle: holidayName == null ? null : Text(holidayName),
-              trailing: Text(
-                formatDate(_date),
-                style: Theme.of(context).textTheme.titleMedium,
-              ),
-              onTap: _pickDate,
             ),
             if (holidayName != null)
               const Padding(
@@ -244,24 +276,35 @@ class _ScheduleEditScreenState extends State<ScheduleEditScreen> {
                 child: Text('직접 지정한 일정은 공휴일에도 실행 대상으로 유지됩니다.'),
               ),
           ],
-          const SizedBox(height: 20),
-          ListTile(
-            contentPadding: const EdgeInsets.symmetric(horizontal: 16),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(4),
-              side: Divider.createBorderSide(context),
-            ),
-            title: const Text('실행 시각'),
-            trailing: Text(
-              '${_time.hour.toString().padLeft(2, '0')}:${_time.minute.toString().padLeft(2, '0')}',
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
-            onTap: _pickTime,
+          const SizedBox(height: 24),
+          const _SectionTitle(
+            title: '실행 시각',
+            description: '선택한 시각에 출결 인증 알림을 표시합니다.',
           ),
-          const SizedBox(height: 18),
+          const SizedBox(height: 12),
+          Card(
+            child: ListTile(
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 16,
+                vertical: 10,
+              ),
+              leading: const Icon(Icons.schedule_outlined),
+              title: const Text('알림 시각'),
+              trailing: Text(
+                formatDisplayTime(_time.hour, _time.minute),
+                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                  fontWeight: FontWeight.w800,
+                  color: Theme.of(context).colorScheme.primary,
+                ),
+              ),
+              onTap: _pickTime,
+            ),
+          ),
+          const SizedBox(height: 12),
           SwitchListTile(
-            contentPadding: EdgeInsets.zero,
+            contentPadding: const EdgeInsets.symmetric(horizontal: 4),
             title: const Text('일정 활성화'),
+            subtitle: const Text('끄면 일정은 보관되지만 알림을 예약하지 않습니다.'),
             value: _enabled,
             onChanged: (enabled) => setState(() => _enabled = enabled),
           ),
@@ -269,6 +312,378 @@ class _ScheduleEditScreenState extends State<ScheduleEditScreen> {
           FilledButton(onPressed: _save, child: const Text('저장')),
         ],
       ),
+    );
+  }
+}
+
+class _TimeWheelPicker extends StatefulWidget {
+  const _TimeWheelPicker({required this.initialTime});
+
+  final TimeOfDay initialTime;
+
+  @override
+  State<_TimeWheelPicker> createState() => _TimeWheelPickerState();
+}
+
+class _TimeWheelPickerState extends State<_TimeWheelPicker>
+    with WidgetsBindingObserver {
+  late int _hour;
+  late int _minute;
+  late final FixedExtentScrollController _periodController;
+  late final FixedExtentScrollController _hourController;
+  late final FixedExtentScrollController _minuteController;
+  final _inputFormKey = GlobalKey<FormState>();
+  late final TextEditingController _hourTextController;
+  late final TextEditingController _minuteTextController;
+  late final FocusNode _hourFocusNode;
+  late final FocusNode _minuteFocusNode;
+  bool _editingWithKeyboard = false;
+  bool _keyboardWasVisible = false;
+  Offset? _hourPointerDown;
+  Offset? _minutePointerDown;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _hour = widget.initialTime.hour;
+    _minute = widget.initialTime.minute;
+    _periodController = FixedExtentScrollController(initialItem: _hour ~/ 12);
+    _hourController = FixedExtentScrollController(initialItem: _hour);
+    _minuteController = FixedExtentScrollController(initialItem: _minute);
+    _hourTextController = TextEditingController();
+    _minuteTextController = TextEditingController();
+    _hourFocusNode = FocusNode();
+    _minuteFocusNode = FocusNode();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _periodController.dispose();
+    _hourController.dispose();
+    _minuteController.dispose();
+    _hourTextController.dispose();
+    _minuteTextController.dispose();
+    _hourFocusNode.dispose();
+    _minuteFocusNode.dispose();
+    super.dispose();
+  }
+
+  @override
+  void didChangeMetrics() {
+    if (!mounted || !_editingWithKeyboard) return;
+    final keyboardVisible = View.of(context).viewInsets.bottom > 0;
+    if (keyboardVisible) {
+      _keyboardWasVisible = true;
+    } else if (_keyboardWasVisible) {
+      _keyboardWasVisible = false;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _editingWithKeyboard) {
+          _applyKeyboardInput(validate: false);
+        }
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final textStyle = Theme.of(
+      context,
+    ).textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w700);
+    return AnimatedPadding(
+      duration: const Duration(milliseconds: 200),
+      curve: Curves.easeOut,
+      padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
+      child: SizedBox(
+        height: 430,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '실행 시각 선택',
+                style: Theme.of(
+                  context,
+                ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                '위아래로 밀어 선택하거나 숫자를 눌러 직접 입력하세요.',
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Expanded(child: _buildWheelPicker(context, textStyle)),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      child: const Text('취소'),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: FilledButton(
+                      onPressed: _submit,
+                      child: const Text('선택'),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildWheelPicker(BuildContext context, TextStyle? textStyle) {
+    return Form(
+      key: _inputFormKey,
+      child: Row(
+        children: [
+          Expanded(
+            child: CupertinoPicker(
+              scrollController: _periodController,
+              itemExtent: 52,
+              useMagnifier: true,
+              magnification: 1.1,
+              onSelectedItemChanged: _selectPeriod,
+              children: const [
+                Center(child: Text('오전')),
+                Center(child: Text('오후')),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: _editingWithKeyboard
+                ? TextFormField(
+                    key: const Key('hour-input'),
+                    controller: _hourTextController,
+                    focusNode: _hourFocusNode,
+                    keyboardType: TextInputType.number,
+                    textInputAction: TextInputAction.next,
+                    textAlign: TextAlign.center,
+                    style: textStyle,
+                    decoration: const InputDecoration(hintText: '시'),
+                    validator: _validateHour,
+                    onFieldSubmitted: (_) => _minuteFocusNode.requestFocus(),
+                  )
+                : Listener(
+                    key: const Key('hour-wheel'),
+                    onPointerDown: (event) => _hourPointerDown = event.position,
+                    onPointerUp: (event) {
+                      if (_isTap(_hourPointerDown, event.position)) {
+                        _showNumberInput(focusHour: true);
+                      }
+                      _hourPointerDown = null;
+                    },
+                    onPointerCancel: (_) => _hourPointerDown = null,
+                    child: CupertinoPicker(
+                      scrollController: _hourController,
+                      itemExtent: 52,
+                      useMagnifier: true,
+                      magnification: 1.12,
+                      looping: true,
+                      onSelectedItemChanged: _selectHour,
+                      children: List.generate(
+                        24,
+                        (hour) => Center(
+                          child: Text(
+                            '${_hourOfPeriod(hour)}',
+                            style: textStyle,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+          ),
+          Text('시', style: Theme.of(context).textTheme.titleMedium),
+          const SizedBox(width: 8),
+          Expanded(
+            child: _editingWithKeyboard
+                ? TextFormField(
+                    key: const Key('minute-input'),
+                    controller: _minuteTextController,
+                    focusNode: _minuteFocusNode,
+                    keyboardType: TextInputType.number,
+                    textInputAction: TextInputAction.done,
+                    textAlign: TextAlign.center,
+                    style: textStyle,
+                    decoration: const InputDecoration(hintText: '분'),
+                    validator: _validateMinute,
+                    onFieldSubmitted: (_) => _applyKeyboardInput(),
+                  )
+                : Listener(
+                    key: const Key('minute-wheel'),
+                    onPointerDown: (event) =>
+                        _minutePointerDown = event.position,
+                    onPointerUp: (event) {
+                      if (_isTap(_minutePointerDown, event.position)) {
+                        _showNumberInput(focusHour: false);
+                      }
+                      _minutePointerDown = null;
+                    },
+                    onPointerCancel: (_) => _minutePointerDown = null,
+                    child: CupertinoPicker(
+                      scrollController: _minuteController,
+                      itemExtent: 52,
+                      useMagnifier: true,
+                      magnification: 1.12,
+                      looping: true,
+                      onSelectedItemChanged: (value) => _minute = value,
+                      children: List.generate(
+                        60,
+                        (minute) => Center(
+                          child: Text(
+                            minute.toString().padLeft(2, '0'),
+                            style: textStyle,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+          ),
+          Text('분', style: Theme.of(context).textTheme.titleMedium),
+        ],
+      ),
+    );
+  }
+
+  void _selectPeriod(int value) {
+    final nextHour = (_hour % 12) + (value * 12);
+    if (nextHour == _hour) return;
+    setState(() => _hour = nextHour);
+    _hourController.animateToItem(
+      nextHour,
+      duration: const Duration(milliseconds: 200),
+      curve: Curves.easeOut,
+    );
+  }
+
+  void _selectHour(int value) {
+    if (_hour == value) return;
+    final previousPeriod = _hour ~/ 12;
+    setState(() => _hour = value);
+    final nextPeriod = value ~/ 12;
+    if (previousPeriod != nextPeriod) {
+      _periodController.animateToItem(
+        nextPeriod,
+        duration: const Duration(milliseconds: 200),
+        curve: Curves.easeOut,
+      );
+    }
+  }
+
+  void _showNumberInput({required bool focusHour}) {
+    _hourTextController.text = '${_hourOfPeriod(_hour)}';
+    _minuteTextController.text = _minute.toString().padLeft(2, '0');
+    _keyboardWasVisible = false;
+    setState(() => _editingWithKeyboard = true);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final focusNode = focusHour ? _hourFocusNode : _minuteFocusNode;
+      focusNode.requestFocus();
+      final controller = focusHour
+          ? _hourTextController
+          : _minuteTextController;
+      controller.selection = TextSelection(
+        baseOffset: 0,
+        extentOffset: controller.text.length,
+      );
+    });
+  }
+
+  bool _applyKeyboardInput({bool validate = true}) {
+    if (!_editingWithKeyboard) return true;
+    if (validate && !_inputFormKey.currentState!.validate()) return false;
+    final enteredHour = int.tryParse(_hourTextController.text);
+    final enteredMinute = int.tryParse(_minuteTextController.text);
+    final validInput =
+        enteredHour != null &&
+        enteredHour >= 1 &&
+        enteredHour <= 12 &&
+        enteredMinute != null &&
+        enteredMinute >= 0 &&
+        enteredMinute <= 59;
+    if (validate && !validInput) return false;
+    final period = _hour ~/ 12;
+    final nextHour = validInput ? (enteredHour % 12) + (period * 12) : _hour;
+    setState(() {
+      _hour = nextHour;
+      if (validInput) _minute = enteredMinute;
+      _editingWithKeyboard = false;
+    });
+    FocusScope.of(context).unfocus();
+    _syncWheelPositionsAfterBuild();
+    return true;
+  }
+
+  void _syncWheelPositionsAfterBuild() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _editingWithKeyboard) return;
+      if (_hourController.hasClients) {
+        _hourController.jumpToItem(_hour);
+      }
+      if (_minuteController.hasClients) {
+        _minuteController.jumpToItem(_minute);
+      }
+    });
+  }
+
+  static String? _validateHour(String? value) {
+    final hour = int.tryParse(value ?? '');
+    return hour == null || hour < 1 || hour > 12 ? '1~12 입력' : null;
+  }
+
+  static String? _validateMinute(String? value) {
+    final minute = int.tryParse(value ?? '');
+    return minute == null || minute < 0 || minute > 59 ? '0~59 입력' : null;
+  }
+
+  bool _isTap(Offset? start, Offset end) {
+    return start != null && (end - start).distance < 8;
+  }
+
+  int _hourOfPeriod(int hour) => hour % 12 == 0 ? 12 : hour % 12;
+
+  void _submit() {
+    if (!_applyKeyboardInput()) return;
+    Navigator.of(context).pop(TimeOfDay(hour: _hour, minute: _minute));
+  }
+}
+
+class _SectionTitle extends StatelessWidget {
+  const _SectionTitle({required this.title, required this.description});
+
+  final String title;
+  final String description;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          title,
+          style: Theme.of(
+            context,
+          ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          description,
+          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
+        ),
+      ],
     );
   }
 }

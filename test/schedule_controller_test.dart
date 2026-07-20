@@ -23,6 +23,7 @@ void main() {
     expect(restored.id, schedule.id);
     expect(restored.action, schedule.action);
     expect(restored.formattedTime, '09:05');
+    expect(restored.displayTime, '오전 9:05');
     expect(restored.weekdays, schedule.weekdays);
     expect(restored.enabled, isTrue);
   });

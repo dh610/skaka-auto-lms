@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -101,6 +102,110 @@ void main() {
     expect(find.text('광복절'), findsNothing);
   });
 
+  testWidgets('time picker supports AM/PM wheels and tap-to-type input', (
+    tester,
+  ) async {
+    await tester.pumpWidget(const MaterialApp(home: ScheduleEditScreen()));
+
+    await tester.scrollUntilVisible(find.text('오전 9:00'), 300);
+    await tester.tap(find.text('오전 9:00'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(CupertinoPicker), findsNWidgets(3));
+    expect(find.text('실행 시각 선택'), findsOneWidget);
+    expect(find.text('선택'), findsOneWidget);
+    expect(find.byType(TextFormField), findsNothing);
+
+    await tester.tap(find.byKey(const Key('hour-wheel')));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(CupertinoPicker), findsOneWidget);
+    expect(find.text('시각 직접 입력'), findsNothing);
+    final fields = find.byType(TextFormField);
+    expect(fields, findsNWidgets(2));
+
+    await tester.enterText(fields.at(0), '13');
+    await tester.enterText(fields.at(1), '60');
+    await tester.tap(find.text('선택'));
+    await tester.pumpAndSettle();
+    expect(find.text('1~12 입력'), findsOneWidget);
+    expect(find.text('0~59 입력'), findsOneWidget);
+
+    await tester.enterText(fields.at(0), '5');
+    await tester.enterText(fields.at(1), '50');
+    await tester.tap(find.text('선택'));
+    await tester.pumpAndSettle();
+    expect(find.text('오전 5:50'), findsOneWidget);
+  });
+
+  testWidgets('hour wheel crossing noon changes AM to PM', (tester) async {
+    await tester.pumpWidget(const MaterialApp(home: ScheduleEditScreen()));
+
+    await tester.scrollUntilVisible(find.text('오전 9:00'), 300);
+    await tester.tap(find.text('오전 9:00'));
+    await tester.pumpAndSettle();
+
+    await tester.drag(
+      find.byKey(const Key('hour-wheel')),
+      const Offset(0, -156),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('선택'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('오후 12:00'), findsOneWidget);
+  });
+
+  testWidgets('dismissing the keyboard returns to the time wheels', (
+    tester,
+  ) async {
+    addTearDown(tester.view.resetViewInsets);
+    await tester.pumpWidget(const MaterialApp(home: ScheduleEditScreen()));
+
+    await tester.scrollUntilVisible(find.text('오전 9:00'), 300);
+    await tester.tap(find.text('오전 9:00'));
+    await tester.pumpAndSettle();
+    await tester.drag(
+      find.byKey(const Key('hour-wheel')),
+      const Offset(0, -52),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('hour-wheel')));
+    await tester.pump();
+
+    tester.view.viewInsets = const FakeViewPadding(bottom: 300);
+    await tester.pump();
+    expect(find.byType(TextFormField), findsNWidgets(2));
+
+    tester.view.resetViewInsets();
+    await tester.pumpAndSettle();
+    expect(find.byType(TextFormField), findsNothing);
+    expect(find.byType(CupertinoPicker), findsNWidgets(3));
+    var hourPicker = tester.widget<CupertinoPicker>(
+      find.descendant(
+        of: find.byKey(const Key('hour-wheel')),
+        matching: find.byType(CupertinoPicker),
+      ),
+    );
+    expect(hourPicker.scrollController!.selectedItem % 24, 10);
+
+    await tester.tap(find.byKey(const Key('hour-wheel')));
+    await tester.pump();
+    await tester.enterText(find.byKey(const Key('hour-input')), '12');
+    tester.view.viewInsets = const FakeViewPadding(bottom: 300);
+    await tester.pump();
+    tester.view.resetViewInsets();
+    await tester.pumpAndSettle();
+
+    hourPicker = tester.widget<CupertinoPicker>(
+      find.descendant(
+        of: find.byKey(const Key('hour-wheel')),
+        matching: find.byType(CupertinoPicker),
+      ),
+    );
+    expect(hourPicker.scrollController!.selectedItem % 24, 0);
+  });
+
   testWidgets('tapping a schedule notification starts authentication', (
     tester,
   ) async {
@@ -187,6 +292,9 @@ class _NoOpNotificationScheduler implements NotificationScheduler {
 
   @override
   ValueListenable<String?> get tapPayload => _tapPayload;
+
+  @override
+  Future<bool> arePermissionsGranted() async => true;
 
   @override
   void consumeTap() => _tapPayload.value = null;

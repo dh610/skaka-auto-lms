@@ -349,8 +349,8 @@ class _EarlyCheckOutConfirmationDialogState
         reachedThreshold
             ? '${widget.profileName}님, 퇴실 가능 시간이 되었습니다.\n\n'
                   '전송된 출결 기록은 앱에서 취소할 수 없습니다.'
-            : '${widget.profileName}님, 아직 17시 50분 이전입니다.\n'
-                  '17시 50분까지 ${formatRemainingTime(remaining)} 남았습니다.\n'
+            : '${widget.profileName}님, 아직 오후 5시 50분 이전입니다.\n'
+                  '오후 5시 50분까지 ${formatRemainingTime(remaining)} 남았습니다.\n'
                   '정말 퇴실 처리하시겠습니까?\n\n'
                   '전송된 출결 기록은 앱에서 취소할 수 없습니다.',
       ),
@@ -447,7 +447,7 @@ class _ScheduleRow extends StatelessWidget {
         children: [
           const Icon(Icons.schedule, size: 20),
           const SizedBox(width: 10),
-          Text(schedule.formattedTime),
+          Text(schedule.displayTime),
           const SizedBox(width: 12),
           Text(schedule.action.label),
         ],

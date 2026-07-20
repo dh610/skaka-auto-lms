@@ -8,6 +8,8 @@ abstract interface class NotificationScheduler {
 
   Future<void> initialize();
 
+  Future<bool> arePermissionsGranted();
+
   Future<bool> requestPermissions();
 
   Future<int> sync(List<AttendanceSchedule> schedules, {DateTime? now});

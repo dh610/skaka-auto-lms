@@ -61,6 +61,31 @@ class LocalNotificationScheduler implements NotificationScheduler {
   }
 
   @override
+  Future<bool> arePermissionsGranted() async {
+    await initialize();
+    if (Platform.isAndroid) {
+      final android = _plugin
+          .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin
+          >();
+      final notificationsAllowed =
+          await android?.areNotificationsEnabled() ?? true;
+      final exactAllowed =
+          await android?.canScheduleExactNotifications() ?? true;
+      return notificationsAllowed && exactAllowed;
+    }
+    if (Platform.isIOS) {
+      final permissions = await _plugin
+          .resolvePlatformSpecificImplementation<
+            IOSFlutterLocalNotificationsPlugin
+          >()
+          ?.checkPermissions();
+      return permissions?.isEnabled ?? false;
+    }
+    return false;
+  }
+
+  @override
   Future<bool> requestPermissions() async {
     await initialize();
     if (Platform.isAndroid) {

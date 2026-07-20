@@ -67,6 +67,8 @@ class AttendanceSchedule {
   String get formattedTime =>
       '${hour.toString().padLeft(2, '0')}:${minute.toString().padLeft(2, '0')}';
 
+  String get displayTime => formatDisplayTime(hour, minute);
+
   String get recurrenceLabel {
     if (recurrence == ScheduleRecurrence.weekly) {
       final days = formatWeekdays(weekdays);
@@ -152,6 +154,15 @@ String formatIsoDate(DateTime date) =>
     '${date.day.toString().padLeft(2, '0')}';
 
 String formatDate(DateTime date) => '${date.year}. ${date.month}. ${date.day}.';
+
+String formatDisplayTime(int hour, int minute) {
+  final period = hour < 12 ? '오전' : '오후';
+  final displayHour = switch (hour % 12) {
+    0 => 12,
+    final value => value,
+  };
+  return '$period $displayHour:${minute.toString().padLeft(2, '0')}';
+}
 
 bool isSameDate(DateTime first, DateTime second) =>
     first.year == second.year &&
