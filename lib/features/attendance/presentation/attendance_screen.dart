@@ -190,7 +190,6 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
               const SizedBox(height: 20),
               _ProfileCard(
                 profile: widget.profile,
-                platformDescription: _controller.platformDescription,
                 busy: _controller.busy,
                 onEditProfile: widget.onEditProfile,
               ),
@@ -460,13 +459,11 @@ class _ScheduleRow extends StatelessWidget {
 class _ProfileCard extends StatelessWidget {
   const _ProfileCard({
     required this.profile,
-    required this.platformDescription,
     required this.busy,
     required this.onEditProfile,
   });
 
   final UserProfile profile;
-  final String platformDescription;
   final bool busy;
   final Future<void> Function() onEditProfile;
 
@@ -478,16 +475,6 @@ class _ProfileCard extends StatelessWidget {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            CircleAvatar(
-              radius: 24,
-              backgroundColor: Theme.of(context).colorScheme.primaryContainer,
-              foregroundColor: Theme.of(context).colorScheme.onPrimaryContainer,
-              child: Text(
-                profile.name.characters.first,
-                style: const TextStyle(fontWeight: FontWeight.w800),
-              ),
-            ),
-            const SizedBox(width: 14),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -496,13 +483,6 @@ class _ProfileCard extends StatelessWidget {
                     '${profile.region.label} · ${profile.classLabel}',
                     style: Theme.of(context).textTheme.titleMedium?.copyWith(
                       fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    platformDescription,
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
                     ),
                   ),
                 ],

@@ -11,6 +11,4 @@ abstract interface class NotificationScheduler {
   Future<bool> requestPermissions();
 
   Future<int> sync(List<AttendanceSchedule> schedules, {DateTime? now});
-
-  Future<void> showTestNotification();
 }

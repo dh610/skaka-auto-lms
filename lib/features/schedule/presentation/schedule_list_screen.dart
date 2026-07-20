@@ -135,20 +135,10 @@ class _NotificationCard extends StatelessWidget {
             const SizedBox(height: 8),
             Text(controller.notificationMessage),
             const SizedBox(height: 10),
-            Wrap(
-              spacing: 8,
-              children: [
-                OutlinedButton.icon(
-                  onPressed: controller.configureNotifications,
-                  icon: const Icon(Icons.notifications_active_outlined),
-                  label: const Text('알림 권한 설정'),
-                ),
-                TextButton.icon(
-                  onPressed: controller.showTestNotification,
-                  icon: const Icon(Icons.notification_add_outlined),
-                  label: const Text('테스트 알림'),
-                ),
-              ],
+            OutlinedButton.icon(
+              onPressed: controller.configureNotifications,
+              icon: const Icon(Icons.notifications_active_outlined),
+              label: const Text('알림 권한 설정'),
             ),
           ],
         ),

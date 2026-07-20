@@ -97,7 +97,4 @@ class _FakeNotificationScheduler implements NotificationScheduler {
     lastSchedules = schedules.toList();
     return schedules.length;
   }
-
-  @override
-  Future<void> showTestNotification() async {}
 }

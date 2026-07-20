@@ -200,9 +200,6 @@ class _NoOpNotificationScheduler implements NotificationScheduler {
   Future<bool> requestPermissions() async => true;
 
   @override
-  Future<void> showTestNotification() async {}
-
-  @override
   Future<int> sync(List<AttendanceSchedule> schedules, {DateTime? now}) async =>
       0;
 }

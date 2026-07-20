@@ -72,18 +72,6 @@ class ScheduleController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> showTestNotification() async {
-    final scheduler = _notificationScheduler;
-    if (scheduler == null) return;
-    try {
-      await scheduler.showTestNotification();
-      _notificationMessage = '테스트 알림을 전송했습니다.';
-    } catch (error) {
-      _notificationMessage = '테스트 알림 실패: $error';
-    }
-    notifyListeners();
-  }
-
   Future<void> _persist({bool requestPermission = false}) async {
     _sort();
     await _store.save(_schedules);

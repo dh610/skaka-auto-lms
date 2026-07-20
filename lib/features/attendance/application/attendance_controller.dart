@@ -25,8 +25,6 @@ class AttendanceController extends ChangeNotifier {
   String get message => _message;
   AttendanceSnapshot? get snapshot => _snapshot;
   bool get authenticated => _token != null;
-  String get platformDescription =>
-      _isAndroid ? 'Android · 인증 후 앱에서 상태 조회' : 'iOS · 인증 후 Safari에서 수동 처리';
 
   void updateProfile(UserProfile profile) {
     _profile = profile;
