@@ -672,22 +672,65 @@ class _TodaySchedulesCardState extends State<_TodaySchedulesCard> {
                     child: Text('오늘 실행할 일정이 없습니다.'),
                   )
                 else
-                  ...schedules.map(
-                    (schedule) => _ScheduleRow(
+                  ...schedules.map((schedule) {
+                    final status = statusForTodaySchedule(
                       schedule,
-                      status: statusForTodaySchedule(
-                        schedule,
-                        now: today,
-                        persistedCompleted: widget.attendanceController
-                            .wasScheduleCompleted(schedule, today),
-                      ),
-                    ),
-                  ),
+                      now: today,
+                      persistedCompleted: widget.attendanceController
+                          .wasScheduleCompleted(schedule, today),
+                      persistedSkipped: widget.attendanceController
+                          .wasScheduleSkipped(schedule, today),
+                    );
+                    return _ScheduleRow(
+                      schedule,
+                      status: status,
+                      onStatusTap:
+                          status == TodayScheduleStatus.overdue ||
+                              status == TodayScheduleStatus.skipped
+                          ? () => _changeSkippedStatus(schedule, status, today)
+                          : null,
+                    );
+                  }),
               ],
             ),
           ),
         );
       },
+    );
+  }
+
+  Future<void> _changeSkippedStatus(
+    AttendanceSchedule schedule,
+    TodayScheduleStatus status,
+    DateTime date,
+  ) async {
+    final markingSkipped = status == TodayScheduleStatus.overdue;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(markingSkipped ? '이 동작을 건너뛸까요?' : '건너뜀을 취소할까요?'),
+        content: Text(
+          markingSkipped
+              ? '수행할 필요가 없었던 일정이라면 건너뜀으로 표시할 수 있습니다. 실제 출결 완료로 기록되지는 않습니다.'
+              : '이 일정을 다시 시간 지남 상태로 되돌립니다.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('취소'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: Text(markingSkipped ? '건너뜀으로 표시' : '되돌리기'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    await widget.attendanceController.setScheduleSkipped(
+      schedule,
+      date,
+      skipped: markingSkipped,
     );
   }
 }
@@ -699,10 +742,11 @@ typedef _ScheduledOccurrence = ({
 });
 
 class _ScheduleRow extends StatelessWidget {
-  const _ScheduleRow(this.schedule, {required this.status});
+  const _ScheduleRow(this.schedule, {required this.status, this.onStatusTap});
 
   final AttendanceSchedule schedule;
   final TodayScheduleStatus status;
+  final VoidCallback? onStatusTap;
 
   @override
   Widget build(BuildContext context) {
@@ -721,6 +765,11 @@ class _ScheduleRow extends StatelessWidget {
         '완료',
         completedColor,
       ),
+      TodayScheduleStatus.skipped => (
+        Icons.do_not_disturb_on_outlined,
+        '건너뜀',
+        colors.outline,
+      ),
       TodayScheduleStatus.overdue => (
         Icons.history_toggle_off_rounded,
         '시간 지남',
@@ -736,17 +785,21 @@ class _ScheduleRow extends StatelessWidget {
           Text(schedule.displayTime),
           const SizedBox(width: 12),
           Expanded(child: Text(schedule.action.label)),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
-            decoration: BoxDecoration(
-              color: color.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(999),
-            ),
-            child: Text(
-              label,
-              style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                color: color,
-                fontWeight: FontWeight.w700,
+          InkWell(
+            onTap: onStatusTap,
+            borderRadius: BorderRadius.circular(999),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+              decoration: BoxDecoration(
+                color: color.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: Text(
+                label,
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                  color: color,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
             ),
           ),

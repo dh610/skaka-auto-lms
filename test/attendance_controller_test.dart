@@ -80,6 +80,41 @@ void main() {
     restored.dispose();
   });
 
+  test('manual skip can be persisted and reverted', () async {
+    SharedPreferences.setMockInitialValues({});
+    final now = DateTime(2026, 7, 21, 10);
+    const schedule = AttendanceSchedule(
+      id: 'optional-leave',
+      action: AttendanceAction.leave,
+      hour: 9,
+      minute: 30,
+      weekdays: {DateTime.tuesday},
+      enabled: true,
+    );
+    final store = AttendanceCompletionStore();
+    final controller = AttendanceController(
+      profile,
+      _FakeAttendanceGateway(),
+      completionStore: store,
+    );
+
+    await controller.setScheduleSkipped(schedule, now, skipped: true);
+    expect(controller.wasScheduleSkipped(schedule, now), isTrue);
+
+    final restored = AttendanceController(
+      profile,
+      _FakeAttendanceGateway(),
+      completionStore: store,
+    );
+    await restored.loadCompletionHistory(now: now);
+    expect(restored.wasScheduleSkipped(schedule, now), isTrue);
+
+    await restored.setScheduleSkipped(schedule, now, skipped: false);
+    expect(restored.wasScheduleSkipped(schedule, now), isFalse);
+    controller.dispose();
+    restored.dispose();
+  });
+
   test('ignores callbacks from unrelated hosts', () async {
     final gateway = _FakeAttendanceGateway();
     final controller = AttendanceController(profile, gateway, isAndroid: true);

@@ -48,6 +48,17 @@ void main() {
     );
   });
 
+  test('manually skipped schedule remains distinct from completion', () {
+    expect(
+      statusForTodaySchedule(
+        schedule,
+        now: DateTime(2026, 7, 20, 9, 1),
+        persistedSkipped: true,
+      ),
+      TodayScheduleStatus.skipped,
+    );
+  });
+
   test(
     'completion store restores only timestamps from the current date',
     () async {

@@ -29,6 +29,7 @@ class AttendanceController extends ChangeNotifier {
   _AttendanceRecovery? _recovery;
   bool _hasError = false;
   Map<String, DateTime> _completedOccurrences = {};
+  Map<String, DateTime> _skippedOccurrences = {};
 
   bool get busy => _busy;
   String get message => _message;
@@ -44,6 +45,18 @@ class AttendanceController extends ChangeNotifier {
   };
 
   bool wasScheduleCompleted(AttendanceSchedule schedule, DateTime date) {
+    return _occurrenceWasRecorded(_completedOccurrences, schedule, date);
+  }
+
+  bool wasScheduleSkipped(AttendanceSchedule schedule, DateTime date) {
+    return _occurrenceWasRecorded(_skippedOccurrences, schedule, date);
+  }
+
+  bool _occurrenceWasRecorded(
+    Map<String, DateTime> occurrences,
+    AttendanceSchedule schedule,
+    DateTime date,
+  ) {
     final scheduledAt = DateTime(
       date.year,
       date.month,
@@ -51,7 +64,7 @@ class AttendanceController extends ChangeNotifier {
       schedule.hour,
       schedule.minute,
     );
-    return _completedOccurrences.containsKey(
+    return occurrences.containsKey(
       AttendanceCompletionStore.occurrenceKey(schedule.id, scheduledAt),
     );
   }
@@ -59,7 +72,34 @@ class AttendanceController extends ChangeNotifier {
   Future<void> loadCompletionHistory({DateTime? now}) async {
     final store = completionStore;
     if (store == null) return;
-    _completedOccurrences = await store.loadFor(now ?? DateTime.now());
+    final targetDate = now ?? DateTime.now();
+    _completedOccurrences = await store.loadFor(targetDate);
+    _skippedOccurrences = await store.loadSkippedFor(targetDate);
+    notifyListeners();
+  }
+
+  Future<void> setScheduleSkipped(
+    AttendanceSchedule schedule,
+    DateTime date, {
+    required bool skipped,
+  }) async {
+    final scheduledAt = DateTime(
+      date.year,
+      date.month,
+      date.day,
+      schedule.hour,
+      schedule.minute,
+    );
+    final key = AttendanceCompletionStore.occurrenceKey(
+      schedule.id,
+      scheduledAt,
+    );
+    if (skipped) {
+      _skippedOccurrences[key] = DateTime.now();
+    } else {
+      _skippedOccurrences.remove(key);
+    }
+    await completionStore?.saveSkipped(_skippedOccurrences);
     notifyListeners();
   }
 
@@ -67,6 +107,7 @@ class AttendanceController extends ChangeNotifier {
     _profile = profile;
     _token = null;
     _completedOccurrences = {};
+    _skippedOccurrences = {};
     if (completionStore case final store?) unawaited(store.clear());
     _setState(
       clearSnapshot: true,
