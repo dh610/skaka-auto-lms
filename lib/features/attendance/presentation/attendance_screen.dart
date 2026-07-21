@@ -644,12 +644,17 @@ class _TodaySchedulesCardState extends State<_TodaySchedulesCard> {
                       ),
                     ),
                     TextButton(
-                      onPressed: () => Navigator.of(context).push<void>(
-                        MaterialPageRoute(
-                          builder: (_) =>
-                              ScheduleListScreen(controller: widget.controller),
-                        ),
-                      ),
+                      onPressed: () async {
+                        await widget.controller.refreshNotificationStatus();
+                        if (!context.mounted) return;
+                        await Navigator.of(context).push<void>(
+                          MaterialPageRoute(
+                            builder: (_) => ScheduleListScreen(
+                              controller: widget.controller,
+                            ),
+                          ),
+                        );
+                      },
                       child: const Text('일정 관리'),
                     ),
                   ],

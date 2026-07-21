@@ -99,6 +99,7 @@ class _SkalaAttendanceAppState extends State<SkalaAttendanceApp> {
 
   Future<void> _finishInitialSetup() async {
     await _initialSetupStore.markCompleted();
+    await _scheduleController.refreshNotificationStatus();
     if (mounted) setState(() => _initialSetupCompleted = true);
   }
 

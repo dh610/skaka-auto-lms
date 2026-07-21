@@ -119,6 +119,43 @@ void main() {
     expect(notifications.initializationStarted, isFalse);
   });
 
+  testWidgets('schedule management refreshes notification permission status', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    const profile = UserProfile(
+      name: '윤동현',
+      region: CampusRegion.pangyo5f,
+      classNumber: 8,
+    );
+    final notifications = _SetupNotificationScheduler(granted: false);
+    final schedules = ScheduleController(ScheduleStore(), notifications);
+    await schedules.load();
+    expect(schedules.notificationsConfigured, isFalse);
+    notifications.granted = true;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: AttendanceScreen(
+          profile: profile,
+          scheduleController: schedules,
+          notificationScheduler: notifications,
+          onEditProfile: () async {},
+          gateway: _WidgetTestAttendanceGateway(),
+          appLinkStream: const Stream.empty(),
+          isAndroid: false,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('일정 관리'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('출결 일정 관리'), findsOneWidget);
+    expect(find.text('알림 권한 설정'), findsNothing);
+    schedules.dispose();
+  });
+
   testWidgets('schedule editor switches between weekly and one-time modes', (
     tester,
   ) async {
