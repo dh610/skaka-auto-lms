@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:skala_attendance/app/app.dart';
+import 'package:skala_attendance/app/initial_setup_screen.dart';
 import 'package:skala_attendance/features/attendance/data/attendance_gateway.dart';
 import 'package:skala_attendance/features/attendance/data/callback_link_settings.dart';
 import 'package:skala_attendance/features/attendance/domain/attendance_snapshot.dart';
@@ -415,6 +416,76 @@ void main() {
     expect(gateway.authenticationProfile, profile);
     schedules.dispose();
   });
+
+  testWidgets('initial setup requests notification permissions', (
+    tester,
+  ) async {
+    final notifications = _SetupNotificationScheduler(granted: false);
+    var finished = false;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: InitialSetupScreen(
+          notificationScheduler: notifications,
+          callbackLinkSettings: _FakeCallbackLinkSettings(enabled: true),
+          isAndroid: false,
+          onFinished: () async => finished = true,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('초기 설정'), findsOneWidget);
+    expect(find.text('설정 필요'), findsOneWidget);
+    await tester.tap(find.text('필요한 설정 계속하기'));
+    await tester.pumpAndSettle();
+
+    expect(notifications.requestCount, 1);
+    expect(finished, isTrue);
+  });
+
+  testWidgets('initial setup resumes after Android app link approval', (
+    tester,
+  ) async {
+    final links = _FakeCallbackLinkSettings(enabled: false, enableOnOpen: true);
+    var finished = false;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: InitialSetupScreen(
+          notificationScheduler: _SetupNotificationScheduler(granted: true),
+          callbackLinkSettings: links,
+          isAndroid: true,
+          onFinished: () async => finished = true,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('필요한 설정 계속하기'));
+    await tester.pumpAndSettle();
+
+    expect(links.openCount, 1);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpAndSettle();
+    expect(finished, isTrue);
+  });
+}
+
+class _SetupNotificationScheduler extends _NoOpNotificationScheduler {
+  _SetupNotificationScheduler({required this.granted});
+
+  bool granted;
+  int requestCount = 0;
+
+  @override
+  Future<bool> arePermissionsGranted() async => granted;
+
+  @override
+  Future<bool> requestPermissions() async {
+    requestCount++;
+    granted = true;
+    return true;
+  }
 }
 
 class _FakeCallbackLinkSettings implements CallbackLinkSettings {

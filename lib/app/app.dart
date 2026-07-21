@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../features/attendance/presentation/attendance_screen.dart';
+import '../features/attendance/data/callback_link_settings.dart';
 import '../features/profile/data/profile_store.dart';
 import '../features/profile/domain/user_profile.dart';
 import '../features/profile/presentation/profile_setup_screen.dart';
@@ -9,12 +10,21 @@ import '../features/schedule/application/notification_scheduler.dart';
 import '../features/schedule/data/schedule_store.dart';
 import '../features/schedule/data/local_notification_scheduler.dart';
 import 'app_theme.dart';
+import 'initial_setup_screen.dart';
+import 'initial_setup_store.dart';
 import 'theme_mode_store.dart';
 
 class SkalaAttendanceApp extends StatefulWidget {
-  const SkalaAttendanceApp({super.key, this.notificationScheduler});
+  const SkalaAttendanceApp({
+    super.key,
+    this.notificationScheduler,
+    this.callbackLinkSettings,
+    this.initialSetupStore,
+  });
 
   final NotificationScheduler? notificationScheduler;
+  final CallbackLinkSettings? callbackLinkSettings;
+  final InitialSetupStore? initialSetupStore;
 
   @override
   State<SkalaAttendanceApp> createState() => _SkalaAttendanceAppState();
@@ -24,10 +34,13 @@ class _SkalaAttendanceAppState extends State<SkalaAttendanceApp> {
   final _navigatorKey = GlobalKey<NavigatorState>();
   final _profileStore = ProfileStore();
   final _themeModeStore = ThemeModeStore();
+  late final InitialSetupStore _initialSetupStore;
   late final NotificationScheduler _notificationScheduler;
+  late final CallbackLinkSettings _callbackLinkSettings;
   late final ScheduleController _scheduleController;
   UserProfile? _profile;
   bool _loading = true;
+  bool _initialSetupCompleted = false;
   ThemeMode _themeMode = ThemeMode.system;
 
   @override
@@ -35,6 +48,9 @@ class _SkalaAttendanceAppState extends State<SkalaAttendanceApp> {
     super.initState();
     _notificationScheduler =
         widget.notificationScheduler ?? LocalNotificationScheduler();
+    _callbackLinkSettings =
+        widget.callbackLinkSettings ?? PlatformCallbackLinkSettings();
+    _initialSetupStore = widget.initialSetupStore ?? InitialSetupStore();
     _scheduleController = ScheduleController(
       ScheduleStore(),
       _notificationScheduler,
@@ -67,9 +83,11 @@ class _SkalaAttendanceAppState extends State<SkalaAttendanceApp> {
 
   Future<void> _loadProfile() async {
     final profile = await _profileStore.load();
+    final initialSetupCompleted = await _initialSetupStore.isCompleted();
     if (!mounted) return;
     setState(() {
       _profile = profile;
+      _initialSetupCompleted = initialSetupCompleted;
       _loading = false;
     });
   }
@@ -77,6 +95,11 @@ class _SkalaAttendanceAppState extends State<SkalaAttendanceApp> {
   Future<void> _saveInitialProfile(UserProfile profile) async {
     await _profileStore.save(profile);
     if (mounted) setState(() => _profile = profile);
+  }
+
+  Future<void> _finishInitialSetup() async {
+    await _initialSetupStore.markCompleted();
+    if (mounted) setState(() => _initialSetupCompleted = true);
   }
 
   Future<void> _editProfile() async {
@@ -106,6 +129,12 @@ class _SkalaAttendanceAppState extends State<SkalaAttendanceApp> {
           ? const Scaffold(body: Center(child: CircularProgressIndicator()))
           : _profile == null
           ? ProfileSetupScreen(onInitialSave: _saveInitialProfile)
+          : !_initialSetupCompleted
+          ? InitialSetupScreen(
+              notificationScheduler: _notificationScheduler,
+              callbackLinkSettings: _callbackLinkSettings,
+              onFinished: _finishInitialSetup,
+            )
           : AttendanceScreen(
               profile: _profile!,
               scheduleController: _scheduleController,
@@ -113,6 +142,7 @@ class _SkalaAttendanceAppState extends State<SkalaAttendanceApp> {
               onEditProfile: _editProfile,
               themeMode: _themeMode,
               onThemeModeChanged: _changeThemeMode,
+              callbackLinkSettings: _callbackLinkSettings,
             ),
     );
   }
