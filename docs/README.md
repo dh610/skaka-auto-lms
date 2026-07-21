@@ -12,6 +12,7 @@
 - [공휴일 데이터 운영 전략](holiday-data-strategy.md): 정적 공휴일 목록을 선택한 이유
 - [Android와 iOS의 기능 차이](platform-capability-differences.md): 인증, 콜백 및 백그라운드 정책 차이
 - [Android APK 배포](android-apk-distribution.md): release 서명, 빌드 및 교육생 배포 절차
+- [무료 계정으로 개인 iPhone에 설치](ios-personal-device-installation.md): Mac과 Xcode를 이용한 7일 제한 개인 설치 절차
 
 ## 역사적 기록
 

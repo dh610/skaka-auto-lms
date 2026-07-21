@@ -70,6 +70,7 @@ docs/      현재 구현, 설계 결정 및 과거 조사 기록
 - [공휴일 데이터 운영 전략](docs/holiday-data-strategy.md)
 - [Android와 iOS의 기능 차이](docs/platform-capability-differences.md)
 - [Android APK 배포](docs/android-apk-distribution.md)
+- [무료 계정으로 개인 iPhone에 설치](docs/ios-personal-device-installation.md)
 
 ## 주의
 
