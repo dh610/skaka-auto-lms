@@ -230,6 +230,24 @@ void main() {
     expect(find.text('공휴일 제외'), findsNothing);
   });
 
+  testWidgets(
+    'schedule editor keeps save accessible until inline save appears',
+    (tester) async {
+      await tester.pumpWidget(const MaterialApp(home: ScheduleEditScreen()));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('sticky-save-button')), findsOneWidget);
+
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('inline-save-button')),
+        300,
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('sticky-save-button')), findsNothing);
+    },
+  );
+
   testWidgets('schedule editor blocks an overlapping occurrence', (
     tester,
   ) async {
@@ -247,10 +265,18 @@ void main() {
       ),
     );
 
-    await tester.scrollUntilVisible(find.text('저장'), 300);
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('inline-save-button')),
+      300,
+    );
     await tester.drag(find.byType(ListView), const Offset(0, -100));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('저장'));
+    await tester.tap(
+      find.descendant(
+        of: find.byKey(const Key('inline-save-button')),
+        matching: find.text('저장'),
+      ),
+    );
     await tester.pump();
 
     expect(find.textContaining('이미 퇴실 일정이 있습니다.'), findsOneWidget);
@@ -262,6 +288,8 @@ void main() {
   ) async {
     await tester.pumpWidget(const MaterialApp(home: ScheduleEditScreen()));
 
+    await tester.scrollUntilVisible(find.text('제외되는 공휴일 보기'), 200);
+    await tester.pumpAndSettle();
     await tester.tap(find.text('제외되는 공휴일 보기'));
     await tester.pumpAndSettle();
 

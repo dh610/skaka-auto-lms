@@ -21,6 +21,9 @@ class ScheduleEditScreen extends StatefulWidget {
 }
 
 class _ScheduleEditScreenState extends State<ScheduleEditScreen> {
+  final _scrollController = ScrollController();
+  final _scrollViewportKey = GlobalKey();
+  final _inlineSaveKey = GlobalKey();
   late AttendanceAction _action;
   late TimeOfDay _time;
   late ScheduleRecurrence _recurrence;
@@ -28,6 +31,8 @@ class _ScheduleEditScreenState extends State<ScheduleEditScreen> {
   late DateTime _date;
   late bool _excludePublicHolidays;
   late bool _enabled;
+  bool _showStickySave = true;
+  bool _visibilityUpdateScheduled = false;
 
   bool get _editing => widget.initialSchedule != null;
 
@@ -50,6 +55,49 @@ class _ScheduleEditScreenState extends State<ScheduleEditScreen> {
     _date = initial?.date ?? _defaultDate();
     _excludePublicHolidays = initial?.excludePublicHolidays ?? true;
     _enabled = initial?.enabled ?? true;
+    _scrollController.addListener(_scheduleStickySaveVisibilityUpdate);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _updateStickySaveVisibility();
+    });
+  }
+
+  @override
+  void dispose() {
+    _scrollController
+      ..removeListener(_scheduleStickySaveVisibilityUpdate)
+      ..dispose();
+    super.dispose();
+  }
+
+  void _scheduleStickySaveVisibilityUpdate() {
+    if (_visibilityUpdateScheduled) return;
+    _visibilityUpdateScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _visibilityUpdateScheduled = false;
+      _updateStickySaveVisibility();
+    });
+  }
+
+  void _updateStickySaveVisibility() {
+    if (!mounted) return;
+    final buttonBox =
+        _inlineSaveKey.currentContext?.findRenderObject() as RenderBox?;
+    final viewportBox =
+        _scrollViewportKey.currentContext?.findRenderObject() as RenderBox?;
+    if (buttonBox == null ||
+        !buttonBox.hasSize ||
+        viewportBox == null ||
+        !viewportBox.hasSize) {
+      return;
+    }
+    final buttonTop = buttonBox.localToGlobal(Offset.zero).dy;
+    final viewportBottom = viewportBox
+        .localToGlobal(Offset(0, viewportBox.size.height))
+        .dy;
+    final shouldShow = buttonTop >= viewportBottom;
+    if (shouldShow != _showStickySave) {
+      setState(() => _showStickySave = shouldShow);
+    }
   }
 
   DateTime _defaultDate() {
@@ -171,6 +219,8 @@ class _ScheduleEditScreenState extends State<ScheduleEditScreen> {
     return Scaffold(
       appBar: AppBar(title: Text(_editing ? '일정 수정' : '일정 추가')),
       body: ListView(
+        key: _scrollViewportKey,
+        controller: _scrollController,
         padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
         children: [
           _SectionTitle(
@@ -321,9 +371,29 @@ class _ScheduleEditScreenState extends State<ScheduleEditScreen> {
             onChanged: (enabled) => setState(() => _enabled = enabled),
           ),
           const SizedBox(height: 20),
-          FilledButton(onPressed: _save, child: const Text('저장')),
+          KeyedSubtree(
+            key: const Key('inline-save-button'),
+            child: FilledButton(
+              key: _inlineSaveKey,
+              onPressed: _save,
+              child: const Text('저장'),
+            ),
+          ),
         ],
       ),
+      bottomNavigationBar: _showStickySave
+          ? SafeArea(
+              top: false,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
+                child: FilledButton(
+                  key: const Key('sticky-save-button'),
+                  onPressed: _save,
+                  child: const Text('저장'),
+                ),
+              ),
+            )
+          : null,
     );
   }
 }
