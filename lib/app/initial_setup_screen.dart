@@ -192,6 +192,7 @@ class _InitialSetupScreenState extends State<InitialSetupScreen>
                     title: '일정 알림',
                     description: '등록한 출결 일정에 맞춰 알림을 표시합니다.',
                     ready: _notificationReady,
+                    actionLabel: '설정하기',
                     onTap: _configureNotifications,
                   ),
                   if (widget.isAndroid) ...[
@@ -201,6 +202,7 @@ class _InitialSetupScreenState extends State<InitialSetupScreen>
                       title: '인증 후 앱 복귀',
                       description: 'Google 인증 완료 후 이 앱으로 자동 복귀합니다.',
                       ready: _callbackLinkReady,
+                      actionLabel: '설정 방법',
                       onTap: _configureCallbackLink,
                     ),
                     if (_linkSetupIncomplete) ...[
@@ -252,6 +254,7 @@ class _SetupItem extends StatelessWidget {
     required this.title,
     required this.description,
     required this.ready,
+    required this.actionLabel,
     required this.onTap,
   });
 
@@ -259,37 +262,72 @@ class _SetupItem extends StatelessWidget {
   final String title;
   final String description;
   final bool ready;
+  final String actionLabel;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
     return Card(
-      child: ListTile(
-        enabled: !ready,
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
         onTap: ready ? null : onTap,
-        contentPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
-        leading: CircleAvatar(child: Icon(icon)),
-        title: Text(title, style: const TextStyle(fontWeight: FontWeight.w700)),
-        subtitle: Text(description),
-        trailing: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Chip(
-              avatar: Icon(
-                ready ? Icons.check_circle_rounded : Icons.info_outline_rounded,
-                size: 18,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              CircleAvatar(child: Icon(icon)),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: const TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(description),
+                    const SizedBox(height: 8),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (!ready)
+                            TextButton(
+                              onPressed: onTap,
+                              style: TextButton.styleFrom(
+                                minimumSize: const Size(0, 32),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                ),
+                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              ),
+                              child: Text(actionLabel),
+                            ),
+                          if (!ready) const SizedBox(height: 4),
+                          Chip(
+                            avatar: Icon(
+                              ready
+                                  ? Icons.check_circle_rounded
+                                  : Icons.info_outline_rounded,
+                              size: 18,
+                            ),
+                            label: Text(ready ? '완료' : '설정 필요'),
+                            backgroundColor: ready
+                                ? colors.primaryContainer
+                                : colors.secondaryContainer,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
               ),
-              label: Text(ready ? '완료' : '설정 필요'),
-              backgroundColor: ready
-                  ? colors.primaryContainer
-                  : colors.secondaryContainer,
-            ),
-            if (!ready) ...[
-              const SizedBox(width: 4),
-              const Icon(Icons.chevron_right_rounded),
             ],
-          ],
+          ),
         ),
       ),
     );
