@@ -662,6 +662,47 @@ void main() {
     await tester.pumpAndSettle();
     expect(finished, isTrue);
   });
+
+  testWidgets(
+    'combined Android setup waits for notifications before link guide',
+    (tester) async {
+      final notifications = _SetupNotificationScheduler(
+        granted: false,
+        grantOnRequest: false,
+      );
+      final links = _FakeCallbackLinkSettings(enabled: false);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: InitialSetupScreen(
+            notificationScheduler: notifications,
+            callbackLinkSettings: links,
+            isAndroid: true,
+            onFinished: () async {},
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('필요한 설정 계속하기'));
+      await tester.pumpAndSettle();
+      expect(find.text('인증 후 앱 복귀 설정'), findsNothing);
+      expect(links.openCount, 0);
+
+      notifications.granted = true;
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+      await tester.pump();
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pumpAndSettle();
+
+      expect(find.text('인증 후 앱 복귀 설정'), findsOneWidget);
+      expect(links.openCount, 0);
+
+      await tester.tap(find.text('설정 화면 열기'));
+      await tester.pumpAndSettle();
+      expect(links.openCount, 1);
+    },
+  );
 }
 
 class _SetupNotificationScheduler extends _NoOpNotificationScheduler {

@@ -33,6 +33,8 @@ class _InitialSetupScreenState extends State<InitialSetupScreen>
   bool _waitingForNotificationSettings = false;
   bool _waitingForLinkSettings = false;
   bool _linkSetupIncomplete = false;
+  bool _pendingCallbackGuide = false;
+  bool _checkingPendingCallbackGuide = false;
 
   bool get _allReady =>
       _notificationReady && (!widget.isAndroid || _callbackLinkReady);
@@ -57,6 +59,8 @@ class _InitialSetupScreenState extends State<InitialSetupScreen>
       unawaited(_handleNotificationSettingsReturn());
     } else if (_waitingForLinkSettings) {
       unawaited(_handleLinkSettingsReturn());
+    } else if (widget.isAndroid && _pendingCallbackGuide) {
+      unawaited(_continuePendingCallbackGuide());
     }
   }
 
@@ -79,6 +83,7 @@ class _InitialSetupScreenState extends State<InitialSetupScreen>
     setState(() => _working = true);
     try {
       if (!_notificationReady) {
+        _pendingCallbackGuide = widget.isAndroid && !_callbackLinkReady;
         final granted = await widget.notificationScheduler.requestPermissions();
         _notificationReady = await widget.notificationScheduler
             .arePermissionsGranted();
@@ -87,8 +92,11 @@ class _InitialSetupScreenState extends State<InitialSetupScreen>
           await _openNotificationSettings();
           return;
         }
+        if (widget.isAndroid && !_notificationReady) return;
       }
       if (widget.isAndroid && !_callbackLinkReady) {
+        if (_checkingPendingCallbackGuide) return;
+        _pendingCallbackGuide = false;
         if (mounted) setState(() => _working = false);
         await _configureCallbackLink();
         return;
@@ -100,6 +108,23 @@ class _InitialSetupScreenState extends State<InitialSetupScreen>
           !_waitingForLinkSettings) {
         setState(() => _working = false);
       }
+    }
+  }
+
+  Future<void> _continuePendingCallbackGuide() async {
+    if (_checkingPendingCallbackGuide || !_pendingCallbackGuide) return;
+    _checkingPendingCallbackGuide = true;
+    try {
+      final ready = await widget.notificationScheduler.arePermissionsGranted();
+      if (!mounted || !ready) return;
+      _pendingCallbackGuide = false;
+      setState(() {
+        _notificationReady = true;
+        _working = false;
+      });
+      if (!_callbackLinkReady) await _configureCallbackLink();
+    } finally {
+      _checkingPendingCallbackGuide = false;
     }
   }
 
