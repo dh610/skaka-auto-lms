@@ -9,6 +9,7 @@
 - [현재 구현 상태](current-implementation.md): 실제 구현 범위와 미구현 범위
 - [공휴일 데이터 운영 전략](holiday-data-strategy.md): 정적 공휴일 목록을 선택한 이유
 - [Android와 iOS의 기능 차이](platform-capability-differences.md): 인증, 콜백 및 백그라운드 정책 차이
+- [Android APK 배포](android-apk-distribution.md): release 서명, 빌드 및 교육생 배포 절차
 
 ## 역사적 기록
 

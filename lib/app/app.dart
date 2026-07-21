@@ -56,7 +56,6 @@ class _SkalaAttendanceAppState extends State<SkalaAttendanceApp> {
   }
 
   Future<void> _initializeSchedules() async {
-    await _notificationScheduler.initialize();
     await _scheduleController.load();
   }
 

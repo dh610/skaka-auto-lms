@@ -27,9 +27,9 @@ class ScheduleController extends ChangeNotifier {
     _schedules = await _store.load();
     _sort();
     _loading = false;
+    notifyListeners();
     await _syncNotifications();
     await refreshNotificationStatus();
-    notifyListeners();
   }
 
   List<AttendanceSchedule> schedulesFor(DateTime date) {

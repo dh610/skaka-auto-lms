@@ -12,6 +12,7 @@ import '../../schedule/domain/training_calendar.dart';
 import '../../schedule/presentation/schedule_list_screen.dart';
 import '../application/attendance_controller.dart';
 import '../data/attendance_completion_store.dart';
+import '../data/callback_link_settings.dart';
 import '../data/attendance_gateway.dart';
 import '../data/skala_attendance_api.dart';
 import '../domain/action_confirmation_policy.dart';
@@ -30,6 +31,7 @@ class AttendanceScreen extends StatefulWidget {
     this.gateway,
     this.appLinkStream,
     this.isAndroid,
+    this.callbackLinkSettings,
   });
 
   final UserProfile profile;
@@ -41,20 +43,28 @@ class AttendanceScreen extends StatefulWidget {
   final AttendanceGateway? gateway;
   final Stream<Uri>? appLinkStream;
   final bool? isAndroid;
+  final CallbackLinkSettings? callbackLinkSettings;
 
   @override
   State<AttendanceScreen> createState() => _AttendanceScreenState();
 }
 
-class _AttendanceScreenState extends State<AttendanceScreen> {
+class _AttendanceScreenState extends State<AttendanceScreen>
+    with WidgetsBindingObserver {
   late final AttendanceController _controller;
   StreamSubscription<Uri>? _linkSubscription;
   AttendanceAction? _pendingScheduledAction;
   bool _handlingScheduledAction = false;
+  late final CallbackLinkSettings _callbackLinkSettings;
+  _PendingAuthentication? _pendingAuthentication;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _callbackLinkSettings =
+        widget.callbackLinkSettings ??
+        PlatformCallbackLinkSettings(isAndroid: widget.isAndroid);
     _controller = AttendanceController(
       widget.profile,
       widget.gateway ?? SkalaAttendanceApi(),
@@ -81,10 +91,79 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
     final occurrence = _occurrenceFromPayload(payload);
     if (occurrence == null) return;
     _pendingScheduledAction = occurrence.action;
-    _controller.startAuthentication(
-      scheduleId: occurrence.scheduleId,
-      scheduledAt: occurrence.scheduledAt,
+    unawaited(
+      _requestAuthentication(
+        scheduleId: occurrence.scheduleId,
+        scheduledAt: occurrence.scheduledAt,
+      ),
     );
+  }
+
+  Future<void> _requestAuthentication({
+    String? scheduleId,
+    DateTime? scheduledAt,
+  }) async {
+    if (widget.isAndroid == false || await _callbackLinkSettings.isEnabled()) {
+      await _controller.startAuthentication(
+        scheduleId: scheduleId,
+        scheduledAt: scheduledAt,
+      );
+      return;
+    }
+    if (!mounted) return;
+    final openSettings = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('앱 복귀 설정이 필요합니다'),
+        content: const Text(
+          'Google 인증이 끝난 뒤 이 앱으로 자동 복귀하려면 '
+          '지원되는 링크 열기를 허용해야 합니다.\n\n'
+          '설정 화면에서 지원되는 링크 열기를 활성화해 주세요. '
+          '이 설정은 최초 한 번만 필요합니다.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('취소'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('링크 설정 열기'),
+          ),
+        ],
+      ),
+    );
+    if (openSettings != true) {
+      _pendingScheduledAction = null;
+      return;
+    }
+    _pendingAuthentication = (scheduleId: scheduleId, scheduledAt: scheduledAt);
+    await _callbackLinkSettings.open();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      unawaited(_resumeAuthenticationAfterSettings());
+    }
+  }
+
+  Future<void> _resumeAuthenticationAfterSettings() async {
+    final pending = _pendingAuthentication;
+    if (pending == null || !await _callbackLinkSettings.isEnabled()) return;
+    _pendingAuthentication = null;
+    await _controller.startAuthentication(
+      scheduleId: pending.scheduleId,
+      scheduledAt: pending.scheduledAt,
+    );
+  }
+
+  Future<void> _retry() async {
+    if (_controller.retryRequiresAuthentication) {
+      await _requestAuthentication();
+    } else {
+      await _controller.retry();
+    }
   }
 
   _ScheduledOccurrence? _occurrenceFromPayload(String payload) {
@@ -145,6 +224,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _linkSubscription?.cancel();
     widget.notificationScheduler.tapPayload.removeListener(
       _handleNotificationTap,
@@ -264,8 +344,8 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                 hasError: _controller.hasError,
                 canRetry: _controller.canRetry,
                 retryLabel: _controller.retryLabel,
-                onAuthenticate: _controller.startAuthentication,
-                onRetry: _controller.retry,
+                onAuthenticate: _requestAuthentication,
+                onRetry: _retry,
               ),
               if (_controller.snapshot case final snapshot?) ...[
                 const SizedBox(height: 16),
@@ -290,6 +370,8 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
     );
   }
 }
+
+typedef _PendingAuthentication = ({String? scheduleId, DateTime? scheduledAt});
 
 class _AuthenticationCard extends StatelessWidget {
   const _AuthenticationCard({

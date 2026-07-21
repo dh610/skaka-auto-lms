@@ -36,6 +36,8 @@ class AttendanceController extends ChangeNotifier {
   bool get authenticated => _token != null;
   bool get hasError => _hasError;
   bool get canRetry => _recovery != null;
+  bool get retryRequiresAuthentication =>
+      _recovery == _AttendanceRecovery.authenticate;
   String get retryLabel => switch (_recovery) {
     _AttendanceRecovery.refresh => '출결 상태 다시 조회',
     _ => 'Google 인증 다시 시도',

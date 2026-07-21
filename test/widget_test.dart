@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:skala_attendance/app/app.dart';
 import 'package:skala_attendance/features/attendance/data/attendance_gateway.dart';
+import 'package:skala_attendance/features/attendance/data/callback_link_settings.dart';
 import 'package:skala_attendance/features/attendance/domain/attendance_snapshot.dart';
 import 'package:skala_attendance/features/attendance/presentation/attendance_screen.dart';
 import 'package:skala_attendance/features/profile/domain/user_profile.dart';
@@ -95,6 +96,26 @@ void main() {
     expect(app.themeMode, ThemeMode.dark);
     final preferences = await SharedPreferences.getInstance();
     expect(preferences.getString('app.themeMode'), 'dark');
+  });
+
+  testWidgets('home schedules do not wait for notification initialization', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({
+      'profile.name': '윤동현',
+      'profile.region': 'P2',
+      'profile.classNumber': 8,
+    });
+    final notifications = _DelayedInitializationNotificationScheduler();
+
+    await tester.pumpWidget(
+      SkalaAttendanceApp(notificationScheduler: notifications),
+    );
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.text('오늘 실행할 일정이 없습니다.'), findsOneWidget);
+    expect(notifications.initializationStarted, isFalse);
   });
 
   testWidgets('schedule editor switches between weekly and one-time modes', (
@@ -331,6 +352,7 @@ void main() {
           ),
           appLinkStream: links.stream,
           isAndroid: true,
+          callbackLinkSettings: _FakeCallbackLinkSettings(enabled: true),
         ),
       ),
     );
@@ -346,6 +368,70 @@ void main() {
     await links.close();
     schedules.dispose();
   });
+
+  testWidgets('Android authentication guides users to app link settings', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    const profile = UserProfile(
+      name: '윤동현',
+      region: CampusRegion.pangyo5f,
+      classNumber: 8,
+    );
+    final schedules = ScheduleController(ScheduleStore());
+    await schedules.load();
+    final gateway = _WidgetTestAttendanceGateway();
+    final linkSettings = _FakeCallbackLinkSettings(
+      enabled: false,
+      enableOnOpen: true,
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: AttendanceScreen(
+          profile: profile,
+          scheduleController: schedules,
+          notificationScheduler: _NoOpNotificationScheduler(),
+          onEditProfile: () async {},
+          gateway: gateway,
+          appLinkStream: const Stream.empty(),
+          isAndroid: true,
+          callbackLinkSettings: linkSettings,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Google 인증 시작'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('앱 복귀 설정이 필요합니다'), findsOneWidget);
+    expect(gateway.authenticationProfile, isNull);
+
+    await tester.tap(find.text('링크 설정 열기'));
+    await tester.pumpAndSettle();
+    expect(linkSettings.openCount, 1);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpAndSettle();
+    expect(gateway.authenticationProfile, profile);
+    schedules.dispose();
+  });
+}
+
+class _FakeCallbackLinkSettings implements CallbackLinkSettings {
+  _FakeCallbackLinkSettings({required this.enabled, this.enableOnOpen = false});
+
+  bool enabled;
+  final bool enableOnOpen;
+  int openCount = 0;
+
+  @override
+  Future<bool> isEnabled() async => enabled;
+
+  @override
+  Future<void> open() async {
+    openCount++;
+    if (enableOnOpen) enabled = true;
+  }
 }
 
 class _NoOpNotificationScheduler implements NotificationScheduler {
@@ -371,6 +457,18 @@ class _NoOpNotificationScheduler implements NotificationScheduler {
   @override
   Future<int> sync(List<AttendanceSchedule> schedules, {DateTime? now}) async =>
       0;
+}
+
+class _DelayedInitializationNotificationScheduler
+    extends _NoOpNotificationScheduler {
+  bool initializationStarted = false;
+  final _gate = Completer<void>();
+
+  @override
+  Future<void> initialize() {
+    initializationStarted = true;
+    return _gate.future;
+  }
 }
 
 class _WidgetTestAttendanceGateway implements AttendanceGateway {

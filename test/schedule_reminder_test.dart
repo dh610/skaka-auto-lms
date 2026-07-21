@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -71,10 +73,38 @@ void main() {
     expect(controller.notificationsConfigured, isTrue);
     controller.dispose();
   });
+
+  test(
+    'stored schedules are visible before notification sync finishes',
+    () async {
+      final syncGate = Completer<void>();
+      final notifications = _FakeNotificationScheduler(syncGate: syncGate);
+      final controller = ScheduleController(ScheduleStore(), notifications);
+      final schedulesLoaded = Completer<void>();
+      controller.addListener(() {
+        if (!controller.loading && !schedulesLoaded.isCompleted) {
+          schedulesLoaded.complete();
+        }
+      });
+
+      final loadFuture = controller.load();
+      await schedulesLoaded.future;
+
+      expect(controller.loading, isFalse);
+      expect(syncGate.isCompleted, isFalse);
+
+      syncGate.complete();
+      await loadFuture;
+      controller.dispose();
+    },
+  );
 }
 
 class _FakeNotificationScheduler implements NotificationScheduler {
+  _FakeNotificationScheduler({this.syncGate});
+
   final _tapPayload = ValueNotifier<String?>(null);
+  final Completer<void>? syncGate;
   int permissionRequests = 0;
   List<AttendanceSchedule> lastSchedules = [];
 
@@ -99,6 +129,7 @@ class _FakeNotificationScheduler implements NotificationScheduler {
   @override
   Future<int> sync(List<AttendanceSchedule> schedules, {DateTime? now}) async {
     lastSchedules = schedules.toList();
+    await syncGate?.future;
     return schedules.length;
   }
 }
