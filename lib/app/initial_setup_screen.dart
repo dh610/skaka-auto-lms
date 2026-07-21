@@ -192,7 +192,6 @@ class _InitialSetupScreenState extends State<InitialSetupScreen>
                     title: '일정 알림',
                     description: '등록한 출결 일정에 맞춰 알림을 표시합니다.',
                     ready: _notificationReady,
-                    actionLabel: '설정하기',
                     onTap: _configureNotifications,
                   ),
                   if (widget.isAndroid) ...[
@@ -254,7 +253,7 @@ class _SetupItem extends StatelessWidget {
     required this.title,
     required this.description,
     required this.ready,
-    required this.actionLabel,
+    this.actionLabel,
     required this.onTap,
   });
 
@@ -262,7 +261,7 @@ class _SetupItem extends StatelessWidget {
   final String title;
   final String description;
   final bool ready;
-  final String actionLabel;
+  final String? actionLabel;
   final VoidCallback onTap;
 
   @override
@@ -295,7 +294,7 @@ class _SetupItem extends StatelessWidget {
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          if (!ready)
+                          if (!ready && actionLabel != null)
                             TextButton(
                               onPressed: onTap,
                               style: TextButton.styleFrom(
@@ -305,9 +304,10 @@ class _SetupItem extends StatelessWidget {
                                 ),
                                 tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                               ),
-                              child: Text(actionLabel),
+                              child: Text(actionLabel!),
                             ),
-                          if (!ready) const SizedBox(height: 4),
+                          if (!ready && actionLabel != null)
+                            const SizedBox(height: 4),
                           Chip(
                             avatar: Icon(
                               ready

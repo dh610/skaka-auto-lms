@@ -437,8 +437,8 @@ void main() {
 
     expect(find.text('초기 설정'), findsOneWidget);
     expect(find.text('설정 필요'), findsOneWidget);
-    expect(find.text('설정하기'), findsOneWidget);
-    await tester.tap(find.text('설정하기'));
+    expect(find.text('설정하기'), findsNothing);
+    await tester.tap(find.text('일정 알림'));
     await tester.pumpAndSettle();
 
     expect(notifications.requestCount, 1);
