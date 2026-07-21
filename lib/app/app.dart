@@ -6,6 +6,8 @@ import 'package:flutter/material.dart';
 import '../features/attendance/presentation/attendance_screen.dart';
 import '../features/attendance/data/callback_link_settings.dart';
 import '../features/profile/data/profile_store.dart';
+import '../features/profile/data/skala_profile_verifier.dart';
+import '../features/profile/domain/profile_verifier.dart';
 import '../features/profile/domain/user_profile.dart';
 import '../features/profile/presentation/profile_setup_screen.dart';
 import '../features/schedule/application/schedule_controller.dart';
@@ -23,12 +25,14 @@ class SkalaAttendanceApp extends StatefulWidget {
     this.notificationScheduler,
     this.callbackLinkSettings,
     this.initialSetupStore,
+    this.profileVerifier,
     bool? isAndroid,
   }) : isAndroid = isAndroid ?? Platform.isAndroid;
 
   final NotificationScheduler? notificationScheduler;
   final CallbackLinkSettings? callbackLinkSettings;
   final InitialSetupStore? initialSetupStore;
+  final ProfileVerifier? profileVerifier;
   final bool isAndroid;
 
   @override
@@ -44,6 +48,7 @@ class _SkalaAttendanceAppState extends State<SkalaAttendanceApp>
   late final NotificationScheduler _notificationScheduler;
   late final CallbackLinkSettings _callbackLinkSettings;
   late final ScheduleController _scheduleController;
+  late final ProfileVerifier _profileVerifier;
   UserProfile? _profile;
   bool _loading = true;
   bool _initialSetupCompleted = false;
@@ -58,6 +63,7 @@ class _SkalaAttendanceAppState extends State<SkalaAttendanceApp>
     _callbackLinkSettings =
         widget.callbackLinkSettings ?? PlatformCallbackLinkSettings();
     _initialSetupStore = widget.initialSetupStore ?? InitialSetupStore();
+    _profileVerifier = widget.profileVerifier ?? SkalaProfileVerifier();
     _scheduleController = ScheduleController(
       ScheduleStore(),
       _notificationScheduler,
@@ -86,6 +92,7 @@ class _SkalaAttendanceAppState extends State<SkalaAttendanceApp>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _scheduleController.dispose();
+    _profileVerifier.close();
     super.dispose();
   }
 
@@ -137,6 +144,9 @@ class _SkalaAttendanceAppState extends State<SkalaAttendanceApp>
     if (mounted) setState(() => _profile = profile);
   }
 
+  Future<void> _verifyProfile(UserProfile profile) =>
+      _profileVerifier.verify(profile);
+
   Future<void> _finishInitialSetup() async {
     await _initialSetupStore.markCompleted();
     await _scheduleController.refreshNotificationStatus();
@@ -149,7 +159,10 @@ class _SkalaAttendanceAppState extends State<SkalaAttendanceApp>
     if (current == null || navigator == null) return;
     final updated = await navigator.push<UserProfile>(
       MaterialPageRoute(
-        builder: (_) => ProfileSetupScreen(initialProfile: current),
+        builder: (_) => ProfileSetupScreen(
+          initialProfile: current,
+          onVerify: _verifyProfile,
+        ),
       ),
     );
     if (updated == null) return;
@@ -169,7 +182,10 @@ class _SkalaAttendanceAppState extends State<SkalaAttendanceApp>
       home: _loading
           ? const Scaffold(body: Center(child: CircularProgressIndicator()))
           : _profile == null
-          ? ProfileSetupScreen(onInitialSave: _saveInitialProfile)
+          ? ProfileSetupScreen(
+              onInitialSave: _saveInitialProfile,
+              onVerify: _verifyProfile,
+            )
           : !_initialSetupCompleted
           ? InitialSetupScreen(
               notificationScheduler: _notificationScheduler,

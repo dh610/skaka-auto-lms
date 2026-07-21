@@ -12,6 +12,7 @@ import 'package:skala_attendance/features/attendance/data/callback_link_settings
 import 'package:skala_attendance/features/attendance/domain/attendance_snapshot.dart';
 import 'package:skala_attendance/features/attendance/presentation/attendance_screen.dart';
 import 'package:skala_attendance/features/profile/domain/user_profile.dart';
+import 'package:skala_attendance/features/profile/domain/profile_verifier.dart';
 import 'package:skala_attendance/features/profile/presentation/profile_setup_screen.dart';
 import 'package:skala_attendance/features/schedule/application/notification_scheduler.dart';
 import 'package:skala_attendance/features/schedule/application/schedule_controller.dart';
@@ -53,6 +54,64 @@ void main() {
       expect(find.text('$number반'), findsOneWidget);
     }
     expect(find.text('5반'), findsNothing);
+  });
+
+  testWidgets('invalid profile is not saved and explains every field', (
+    tester,
+  ) async {
+    var saved = false;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ProfileSetupScreen(
+          onInitialSave: (_) async => saved = true,
+          onVerify: (_) async => throw const InvalidProfileException(),
+        ),
+      ),
+    );
+
+    await tester.enterText(find.byType(TextFormField), '잘못된 이름');
+    await tester.tap(find.text('지역'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('판교캠퍼스 5F').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('반'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('8반').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('저장'));
+    await tester.pumpAndSettle();
+
+    expect(saved, isFalse);
+    expect(
+      find.text('등록된 수강생 정보를 찾을 수 없습니다. 이름, 캠퍼스와 반을 다시 확인해주세요.'),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('invalid edited profile keeps the editing screen open', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ProfileSetupScreen(
+          initialProfile: const UserProfile(
+            name: '기존 사용자',
+            region: CampusRegion.pangyo5f,
+            classNumber: 8,
+          ),
+          onVerify: (_) async => throw const InvalidProfileException(),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('저장'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('사용자 정보 수정'), findsOneWidget);
+    expect(
+      find.text('등록된 수강생 정보를 찾을 수 없습니다. 이름, 캠퍼스와 반을 다시 확인해주세요.'),
+      findsOneWidget,
+    );
   });
 
   testWidgets('saved user can open the profile editing screen', (tester) async {

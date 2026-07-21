@@ -1,13 +1,19 @@
 import 'package:flutter/material.dart';
 
+import '../domain/profile_verifier.dart';
 import '../domain/user_profile.dart';
 
 class ProfileSetupScreen extends StatefulWidget {
-  const ProfileSetupScreen({super.key, this.initialProfile, this.onInitialSave})
-    : assert(initialProfile != null || onInitialSave != null);
+  const ProfileSetupScreen({
+    super.key,
+    this.initialProfile,
+    this.onInitialSave,
+    this.onVerify,
+  }) : assert(initialProfile != null || onInitialSave != null);
 
   final UserProfile? initialProfile;
   final Future<void> Function(UserProfile profile)? onInitialSave;
+  final Future<void> Function(UserProfile profile)? onVerify;
 
   @override
   State<ProfileSetupScreen> createState() => _ProfileSetupScreenState();
@@ -19,6 +25,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
   CampusRegion? _region;
   int? _classNumber;
   bool _saving = false;
+  String? _verificationError;
 
   bool get _isEditing => widget.initialProfile != null;
 
@@ -47,12 +54,25 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
       region: region,
       classNumber: classNumber,
     );
-    setState(() => _saving = true);
+    setState(() {
+      _saving = true;
+      _verificationError = null;
+    });
     try {
+      await widget.onVerify?.call(profile);
+      if (!mounted) return;
       if (_isEditing) {
-        if (mounted) Navigator.of(context).pop(profile);
+        Navigator.of(context).pop(profile);
       } else {
         await widget.onInitialSave!(profile);
+      }
+    } on ProfileVerificationException catch (error) {
+      if (mounted) setState(() => _verificationError = error.message);
+    } catch (_) {
+      if (mounted) {
+        setState(
+          () => _verificationError = '사용자 정보를 확인할 수 없습니다. 잠시 후 다시 시도해주세요.',
+        );
       }
     } finally {
       if (mounted) setState(() => _saving = false);
@@ -139,9 +159,21 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
                 validator: (value) => value == null ? '반을 선택해주세요.' : null,
               ),
               const SizedBox(height: 28),
+              if (_verificationError case final error?) ...[
+                Semantics(
+                  liveRegion: true,
+                  child: Text(
+                    error,
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.error,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+              ],
               FilledButton(
                 onPressed: _saving ? null : _save,
-                child: Text(_saving ? '저장 중…' : '저장'),
+                child: Text(_saving ? '사용자 정보 확인 중…' : '저장'),
               ),
             ],
           ),
