@@ -534,6 +534,12 @@ void main() {
     await tester.tap(find.text('일정 알림'));
     await tester.pumpAndSettle();
 
+    expect(find.text('알림 권한 설정'), findsOneWidget);
+    expect(find.textContaining('설정 → 앱 → SKALA 출결 도우미 → 알림'), findsOneWidget);
+    expect(notifications.openSettingsCount, 0);
+
+    await tester.tap(find.text('설정 화면 열기'));
+    await tester.pumpAndSettle();
     expect(notifications.openSettingsCount, 1);
     expect(finished, isFalse);
 

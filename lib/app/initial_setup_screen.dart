@@ -124,6 +124,11 @@ class _InitialSetupScreenState extends State<InitialSetupScreen>
   }
 
   Future<void> _openNotificationSettings() async {
+    final shouldOpen = await showDialog<bool>(
+      context: context,
+      builder: (context) => const _NotificationPermissionGuideDialog(),
+    );
+    if (shouldOpen != true || !mounted) return;
     _waitingForNotificationSettings = true;
     try {
       await widget.notificationScheduler.openPermissionSettings();
@@ -279,6 +284,56 @@ class _InitialSetupScreenState extends State<InitialSetupScreen>
                 ],
               ),
       ),
+    );
+  }
+}
+
+class _NotificationPermissionGuideDialog extends StatelessWidget {
+  const _NotificationPermissionGuideDialog();
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('알림 권한 설정'),
+      content: const SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('알림 권한이 이전에 거부되어 iOS 설정에서 직접 허용해야 합니다.'),
+            SizedBox(height: 18),
+            _GuideStep(
+              number: 1,
+              title: '앱 설정 확인',
+              description: '설정에서 SKALA 출결 도우미 항목을 확인하세요.',
+            ),
+            SizedBox(height: 14),
+            _GuideStep(number: 2, title: '알림', description: '알림 메뉴로 들어가세요.'),
+            SizedBox(height: 14),
+            _GuideStep(
+              number: 3,
+              title: '알림 허용',
+              description: '스위치를 켠 뒤 앱으로 돌아오세요.',
+            ),
+            SizedBox(height: 18),
+            Text(
+              '설정 화면이 앱 항목으로 바로 열리지 않으면 설정 → 앱 → '
+              'SKALA 출결 도우미 → 알림 순서로 이동하세요.',
+              style: TextStyle(fontSize: 12),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(false),
+          child: const Text('취소'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.of(context).pop(true),
+          child: const Text('설정 화면 열기'),
+        ),
+      ],
     );
   }
 }
