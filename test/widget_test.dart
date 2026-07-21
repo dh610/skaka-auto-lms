@@ -248,6 +248,25 @@ void main() {
     },
   );
 
+  testWidgets('schedule editor briefly reveals its scrollbar on entry', (
+    tester,
+  ) async {
+    await tester.pumpWidget(const MaterialApp(home: ScheduleEditScreen()));
+    await tester.pump();
+
+    expect(find.byType(Scrollbar), findsOneWidget);
+    expect(
+      tester.widget<Scrollbar>(find.byType(Scrollbar)).thumbVisibility,
+      isTrue,
+    );
+
+    await tester.pump(const Duration(seconds: 2));
+    expect(
+      tester.widget<Scrollbar>(find.byType(Scrollbar)).thumbVisibility,
+      isNull,
+    );
+  });
+
   testWidgets('schedule editor blocks an overlapping occurrence', (
     tester,
   ) async {

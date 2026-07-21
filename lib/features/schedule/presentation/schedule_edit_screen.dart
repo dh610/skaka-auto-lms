@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 
@@ -32,7 +34,9 @@ class _ScheduleEditScreenState extends State<ScheduleEditScreen> {
   late bool _excludePublicHolidays;
   late bool _enabled;
   bool _showStickySave = true;
+  bool _showInitialScrollbar = true;
   bool _visibilityUpdateScheduled = false;
+  Timer? _scrollbarHintTimer;
 
   bool get _editing => widget.initialSchedule != null;
 
@@ -59,10 +63,14 @@ class _ScheduleEditScreenState extends State<ScheduleEditScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _updateStickySaveVisibility();
     });
+    _scrollbarHintTimer = Timer(const Duration(seconds: 2), () {
+      if (mounted) setState(() => _showInitialScrollbar = false);
+    });
   }
 
   @override
   void dispose() {
+    _scrollbarHintTimer?.cancel();
     _scrollController
       ..removeListener(_scheduleStickySaveVisibilityUpdate)
       ..dispose();
@@ -218,168 +226,171 @@ class _ScheduleEditScreenState extends State<ScheduleEditScreen> {
     final holidayName = TrainingCalendar.holidayName(_date);
     return Scaffold(
       appBar: AppBar(title: Text(_editing ? '일정 수정' : '일정 추가')),
-      body: ListView(
-        key: _scrollViewportKey,
+      body: Scrollbar(
         controller: _scrollController,
-        padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
-        children: [
-          _SectionTitle(
-            title: '출결 동작',
-            description: '알림을 눌러 인증한 뒤 처리할 동작을 선택하세요.',
-          ),
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: AttendanceAction.values.map((action) {
-              return ChoiceChip(
-                avatar: Icon(action.icon, size: 18),
-                label: Text(action.label),
-                selected: _action == action,
-                onSelected: (_) => setState(() => _action = action),
-              );
-            }).toList(),
-          ),
-          const SizedBox(height: 28),
-          const _SectionTitle(
-            title: '반복 방식',
-            description: '요일을 반복하거나 과정 기간 내 날짜를 직접 지정할 수 있습니다.',
-          ),
-          const SizedBox(height: 12),
-          SegmentedButton<ScheduleRecurrence>(
-            expandedInsets: EdgeInsets.zero,
-            segments: ScheduleRecurrence.values
-                .map(
-                  (value) =>
-                      ButtonSegment(value: value, label: Text(value.label)),
-                )
-                .toList(),
-            selected: {_recurrence},
-            onSelectionChanged: (selection) {
-              setState(() => _recurrence = selection.single);
-            },
-          ),
-          const SizedBox(height: 20),
-          if (_recurrence == ScheduleRecurrence.weekly) ...[
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      '실행 요일',
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w700,
+        thumbVisibility: _showInitialScrollbar ? true : null,
+        child: ListView(
+          key: _scrollViewportKey,
+          controller: _scrollController,
+          padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
+          children: [
+            _SectionTitle(
+              title: '출결 동작',
+              description: '알림을 눌러 인증한 뒤 처리할 동작을 선택하세요.',
+            ),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: AttendanceAction.values.map((action) {
+                return ChoiceChip(
+                  avatar: Icon(action.icon, size: 18),
+                  label: Text(action.label),
+                  selected: _action == action,
+                  onSelected: (_) => setState(() => _action = action),
+                );
+              }).toList(),
+            ),
+            const SizedBox(height: 28),
+            const _SectionTitle(
+              title: '반복 방식',
+              description: '요일을 반복하거나 과정 기간 내 날짜를 직접 지정할 수 있습니다.',
+            ),
+            const SizedBox(height: 12),
+            SegmentedButton<ScheduleRecurrence>(
+              expandedInsets: EdgeInsets.zero,
+              segments: ScheduleRecurrence.values
+                  .map(
+                    (value) =>
+                        ButtonSegment(value: value, label: Text(value.label)),
+                  )
+                  .toList(),
+              selected: {_recurrence},
+              onSelectionChanged: (selection) {
+                setState(() => _recurrence = selection.single);
+              },
+            ),
+            const SizedBox(height: 20),
+            if (_recurrence == ScheduleRecurrence.weekly) ...[
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '실행 요일',
+                        style: Theme.of(context).textTheme.titleMedium
+                            ?.copyWith(fontWeight: FontWeight.w700),
                       ),
-                    ),
-                    const SizedBox(height: 10),
-                    Wrap(
-                      spacing: 8,
-                      children: weekdayLabels.entries.map((entry) {
-                        return FilterChip(
-                          label: Text(entry.value),
-                          selected: _weekdays.contains(entry.key),
-                          onSelected: (selected) {
-                            setState(() {
-                              if (selected) {
-                                _weekdays.add(entry.key);
-                              } else {
-                                _weekdays.remove(entry.key);
-                              }
-                            });
-                          },
-                        );
-                      }).toList(),
-                    ),
-                    const Divider(height: 28),
-                    SwitchListTile(
-                      contentPadding: EdgeInsets.zero,
-                      title: const Text('공휴일 제외'),
-                      subtitle: const Text('2026년 과정 기간의 법정공휴일에는 실행하지 않습니다.'),
-                      value: _excludePublicHolidays,
-                      onChanged: (value) {
-                        setState(() => _excludePublicHolidays = value);
-                      },
-                    ),
-                    TextButton.icon(
-                      onPressed: _weekdays.isEmpty
-                          ? null
-                          : _showExcludedHolidays,
-                      icon: const Icon(Icons.calendar_month_outlined),
-                      label: const Text('제외되는 공휴일 보기'),
-                    ),
-                  ],
+                      const SizedBox(height: 10),
+                      Wrap(
+                        spacing: 8,
+                        children: weekdayLabels.entries.map((entry) {
+                          return FilterChip(
+                            label: Text(entry.value),
+                            selected: _weekdays.contains(entry.key),
+                            onSelected: (selected) {
+                              setState(() {
+                                if (selected) {
+                                  _weekdays.add(entry.key);
+                                } else {
+                                  _weekdays.remove(entry.key);
+                                }
+                              });
+                            },
+                          );
+                        }).toList(),
+                      ),
+                      const Divider(height: 28),
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('공휴일 제외'),
+                        subtitle: const Text('2026년 과정 기간의 법정공휴일에는 실행하지 않습니다.'),
+                        value: _excludePublicHolidays,
+                        onChanged: (value) {
+                          setState(() => _excludePublicHolidays = value);
+                        },
+                      ),
+                      TextButton.icon(
+                        onPressed: _weekdays.isEmpty
+                            ? null
+                            : _showExcludedHolidays,
+                        icon: const Icon(Icons.calendar_month_outlined),
+                        label: const Text('제외되는 공휴일 보기'),
+                      ),
+                    ],
+                  ),
                 ),
               ),
+            ] else ...[
+              Card(
+                child: ListTile(
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 8,
+                  ),
+                  leading: const Icon(Icons.event_outlined),
+                  title: const Text('실행 날짜'),
+                  subtitle: holidayName == null ? null : Text(holidayName),
+                  trailing: Text(
+                    formatDate(_date),
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  onTap: _pickDate,
+                ),
+              ),
+              if (holidayName != null)
+                const Padding(
+                  padding: EdgeInsets.only(top: 8),
+                  child: Text('직접 지정한 일정은 공휴일에도 실행 대상으로 유지됩니다.'),
+                ),
+            ],
+            const SizedBox(height: 24),
+            const _SectionTitle(
+              title: '실행 시각',
+              description: '선택한 시각에 출결 인증 알림을 표시합니다.',
             ),
-          ] else ...[
+            const SizedBox(height: 12),
             Card(
               child: ListTile(
                 contentPadding: const EdgeInsets.symmetric(
                   horizontal: 16,
-                  vertical: 8,
+                  vertical: 10,
                 ),
-                leading: const Icon(Icons.event_outlined),
-                title: const Text('실행 날짜'),
-                subtitle: holidayName == null ? null : Text(holidayName),
+                leading: const Icon(Icons.schedule_outlined),
+                title: const Text('알림 시각'),
                 trailing: Text(
-                  formatDate(_date),
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w700,
+                  formatDisplayTime(_time.hour, _time.minute),
+                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                    fontWeight: FontWeight.w800,
+                    color: Theme.of(context).colorScheme.primary,
                   ),
                 ),
-                onTap: _pickDate,
+                onTap: _pickTime,
               ),
             ),
-            if (holidayName != null)
-              const Padding(
-                padding: EdgeInsets.only(top: 8),
-                child: Text('직접 지정한 일정은 공휴일에도 실행 대상으로 유지됩니다.'),
+            const SizedBox(height: 12),
+            SwitchListTile(
+              contentPadding: const EdgeInsets.symmetric(horizontal: 4),
+              title: const Text('일정 활성화'),
+              subtitle: const Text('끄면 일정은 보관되지만 알림을 예약하지 않습니다.'),
+              value: _enabled,
+              onChanged: (enabled) => setState(() => _enabled = enabled),
+            ),
+            const SizedBox(height: 20),
+            KeyedSubtree(
+              key: const Key('inline-save-button'),
+              child: FilledButton(
+                key: _inlineSaveKey,
+                onPressed: _save,
+                child: const Text('저장'),
               ),
+            ),
           ],
-          const SizedBox(height: 24),
-          const _SectionTitle(
-            title: '실행 시각',
-            description: '선택한 시각에 출결 인증 알림을 표시합니다.',
-          ),
-          const SizedBox(height: 12),
-          Card(
-            child: ListTile(
-              contentPadding: const EdgeInsets.symmetric(
-                horizontal: 16,
-                vertical: 10,
-              ),
-              leading: const Icon(Icons.schedule_outlined),
-              title: const Text('알림 시각'),
-              trailing: Text(
-                formatDisplayTime(_time.hour, _time.minute),
-                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.w800,
-                  color: Theme.of(context).colorScheme.primary,
-                ),
-              ),
-              onTap: _pickTime,
-            ),
-          ),
-          const SizedBox(height: 12),
-          SwitchListTile(
-            contentPadding: const EdgeInsets.symmetric(horizontal: 4),
-            title: const Text('일정 활성화'),
-            subtitle: const Text('끄면 일정은 보관되지만 알림을 예약하지 않습니다.'),
-            value: _enabled,
-            onChanged: (enabled) => setState(() => _enabled = enabled),
-          ),
-          const SizedBox(height: 20),
-          KeyedSubtree(
-            key: const Key('inline-save-button'),
-            child: FilledButton(
-              key: _inlineSaveKey,
-              onPressed: _save,
-              child: const Text('저장'),
-            ),
-          ),
-        ],
+        ),
       ),
       bottomNavigationBar: _showStickySave
           ? SafeArea(
