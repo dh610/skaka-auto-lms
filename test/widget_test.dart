@@ -437,7 +437,7 @@ void main() {
 
     expect(find.text('초기 설정'), findsOneWidget);
     expect(find.text('설정 필요'), findsOneWidget);
-    await tester.tap(find.text('필요한 설정 계속하기'));
+    await tester.tap(find.text('일정 알림'));
     await tester.pumpAndSettle();
 
     expect(notifications.requestCount, 1);
@@ -461,9 +461,17 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    await tester.tap(find.text('필요한 설정 계속하기'));
+    await tester.tap(find.text('인증 후 앱 복귀'));
     await tester.pumpAndSettle();
 
+    expect(find.text('인증 후 앱 복귀 설정'), findsOneWidget);
+    expect(find.text('지원되는 링크 열기'), findsOneWidget);
+    expect(find.text('지원되는 웹 주소'), findsOneWidget);
+    expect(find.text('att.skala-ai.com'), findsOneWidget);
+    expect(links.openCount, 0);
+
+    await tester.tap(find.text('설정 화면 열기'));
+    await tester.pumpAndSettle();
     expect(links.openCount, 1);
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
     await tester.pumpAndSettle();

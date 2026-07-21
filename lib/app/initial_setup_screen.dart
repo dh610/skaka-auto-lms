@@ -31,6 +31,7 @@ class _InitialSetupScreenState extends State<InitialSetupScreen>
   bool _notificationReady = false;
   bool _callbackLinkReady = false;
   bool _waitingForLinkSettings = false;
+  bool _linkSetupIncomplete = false;
 
   bool get _allReady =>
       _notificationReady && (!widget.isAndroid || _callbackLinkReady);
@@ -80,8 +81,8 @@ class _InitialSetupScreenState extends State<InitialSetupScreen>
         if (mounted) setState(() {});
       }
       if (widget.isAndroid && !_callbackLinkReady) {
-        _waitingForLinkSettings = true;
-        await widget.callbackLinkSettings.open();
+        if (mounted) setState(() => _working = false);
+        await _configureCallbackLink();
         return;
       }
       if (_allReady) await widget.onFinished();
@@ -92,15 +93,67 @@ class _InitialSetupScreenState extends State<InitialSetupScreen>
     }
   }
 
+  Future<void> _configureNotifications() async {
+    if (_working || _notificationReady) return;
+    setState(() => _working = true);
+    try {
+      await widget.notificationScheduler.requestPermissions();
+      final ready = await widget.notificationScheduler.arePermissionsGranted();
+      if (!mounted) return;
+      setState(() => _notificationReady = ready);
+      if (_allReady) await widget.onFinished();
+    } finally {
+      if (mounted) setState(() => _working = false);
+    }
+  }
+
+  Future<void> _configureCallbackLink() async {
+    if (_working || _callbackLinkReady) return;
+    final shouldOpen = await showDialog<bool>(
+      context: context,
+      builder: (context) => const _CallbackLinkGuideDialog(),
+    );
+    if (shouldOpen != true || !mounted) return;
+    setState(() {
+      _working = true;
+      _waitingForLinkSettings = true;
+      _linkSetupIncomplete = false;
+    });
+    try {
+      await widget.callbackLinkSettings.open();
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _working = false;
+        _waitingForLinkSettings = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Android 링크 설정 화면을 열지 못했습니다.')),
+      );
+    }
+  }
+
   Future<void> _handleLinkSettingsReturn() async {
     final enabled = await widget.callbackLinkSettings.isEnabled();
     if (!mounted) return;
     _waitingForLinkSettings = false;
     setState(() {
       _callbackLinkReady = enabled;
+      _linkSetupIncomplete = !enabled;
       _working = false;
     });
-    if (_allReady) await widget.onFinished();
+    if (_allReady) {
+      await widget.onFinished();
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            '설정이 아직 완료되지 않았습니다. 지원되는 웹 주소에서 '
+            'att.skala-ai.com까지 켜주세요.',
+          ),
+        ),
+      );
+    }
   }
 
   Future<void> _skip() async {
@@ -139,6 +192,7 @@ class _InitialSetupScreenState extends State<InitialSetupScreen>
                     title: '일정 알림',
                     description: '등록한 출결 일정에 맞춰 알림을 표시합니다.',
                     ready: _notificationReady,
+                    onTap: _configureNotifications,
                   ),
                   if (widget.isAndroid) ...[
                     const SizedBox(height: 12),
@@ -147,7 +201,18 @@ class _InitialSetupScreenState extends State<InitialSetupScreen>
                       title: '인증 후 앱 복귀',
                       description: 'Google 인증 완료 후 이 앱으로 자동 복귀합니다.',
                       ready: _callbackLinkReady,
+                      onTap: _configureCallbackLink,
                     ),
+                    if (_linkSetupIncomplete) ...[
+                      const SizedBox(height: 6),
+                      Text(
+                        '지원되는 웹 주소에서 att.skala-ai.com까지 켜야 완료됩니다.',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: Theme.of(context).colorScheme.error,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
                   ],
                   const SizedBox(height: 32),
                   FilledButton(
@@ -187,33 +252,135 @@ class _SetupItem extends StatelessWidget {
     required this.title,
     required this.description,
     required this.ready,
+    required this.onTap,
   });
 
   final IconData icon;
   final String title;
   final String description;
   final bool ready;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
     return Card(
       child: ListTile(
+        enabled: !ready,
+        onTap: ready ? null : onTap,
         contentPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
         leading: CircleAvatar(child: Icon(icon)),
         title: Text(title, style: const TextStyle(fontWeight: FontWeight.w700)),
         subtitle: Text(description),
-        trailing: Chip(
-          avatar: Icon(
-            ready ? Icons.check_circle_rounded : Icons.info_outline_rounded,
-            size: 18,
-          ),
-          label: Text(ready ? '완료' : '설정 필요'),
-          backgroundColor: ready
-              ? colors.primaryContainer
-              : colors.secondaryContainer,
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Chip(
+              avatar: Icon(
+                ready ? Icons.check_circle_rounded : Icons.info_outline_rounded,
+                size: 18,
+              ),
+              label: Text(ready ? '완료' : '설정 필요'),
+              backgroundColor: ready
+                  ? colors.primaryContainer
+                  : colors.secondaryContainer,
+            ),
+            if (!ready) ...[
+              const SizedBox(width: 4),
+              const Icon(Icons.chevron_right_rounded),
+            ],
+          ],
         ),
       ),
+    );
+  }
+}
+
+class _CallbackLinkGuideDialog extends StatelessWidget {
+  const _CallbackLinkGuideDialog();
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('인증 후 앱 복귀 설정'),
+      content: const SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Android 설정 화면에서 아래 항목을 모두 허용해 주세요.'),
+            SizedBox(height: 18),
+            _GuideStep(
+              number: 1,
+              title: '지원되는 링크 열기',
+              description: '오른쪽 스위치를 켜세요.',
+            ),
+            SizedBox(height: 14),
+            _GuideStep(
+              number: 2,
+              title: '지원되는 웹 주소',
+              description: '항목을 눌러 상세 화면으로 들어가세요.',
+            ),
+            SizedBox(height: 14),
+            _GuideStep(
+              number: 3,
+              title: 'att.skala-ai.com',
+              description: '오른쪽 스위치를 켠 뒤 앱으로 돌아오세요.',
+            ),
+            SizedBox(height: 18),
+            Text(
+              '기기와 Android 버전에 따라 메뉴 배치가 조금 다를 수 있습니다.',
+              style: TextStyle(fontSize: 12),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(false),
+          child: const Text('취소'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.of(context).pop(true),
+          child: const Text('설정 화면 열기'),
+        ),
+      ],
+    );
+  }
+}
+
+class _GuideStep extends StatelessWidget {
+  const _GuideStep({
+    required this.number,
+    required this.title,
+    required this.description,
+  });
+
+  final int number;
+  final String title;
+  final String description;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        CircleAvatar(
+          radius: 14,
+          child: Text('$number', style: const TextStyle(fontSize: 13)),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(title, style: const TextStyle(fontWeight: FontWeight.w700)),
+              const SizedBox(height: 2),
+              Text(description),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }
