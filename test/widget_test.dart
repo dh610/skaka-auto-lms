@@ -156,6 +156,35 @@ void main() {
     schedules.dispose();
   });
 
+  testWidgets('revoked permissions reopen initial setup on app resume', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({
+      'profile.name': '윤동현',
+      'profile.region': 'P2',
+      'profile.classNumber': 8,
+      'initialSetup.completed': true,
+    });
+    final notifications = _SetupNotificationScheduler(granted: true);
+
+    await tester.pumpWidget(
+      SkalaAttendanceApp(
+        notificationScheduler: notifications,
+        callbackLinkSettings: _FakeCallbackLinkSettings(enabled: true),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('윤동현님, 안녕하세요'), findsOneWidget);
+
+    notifications.granted = false;
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpAndSettle();
+
+    expect(find.text('초기 설정'), findsOneWidget);
+    expect(find.text('설정 필요'), findsOneWidget);
+  });
+
   testWidgets('schedule editor switches between weekly and one-time modes', (
     tester,
   ) async {
@@ -499,8 +528,8 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    expect(find.text('설정 방법'), findsOneWidget);
-    await tester.tap(find.text('설정 방법'));
+    expect(find.text('설정 방법'), findsNothing);
+    await tester.tap(find.text('인증 후 앱 복귀'));
     await tester.pumpAndSettle();
 
     expect(find.text('인증 후 앱 복귀 설정'), findsOneWidget);

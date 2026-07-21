@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../features/attendance/presentation/attendance_screen.dart';
@@ -30,7 +32,8 @@ class SkalaAttendanceApp extends StatefulWidget {
   State<SkalaAttendanceApp> createState() => _SkalaAttendanceAppState();
 }
 
-class _SkalaAttendanceAppState extends State<SkalaAttendanceApp> {
+class _SkalaAttendanceAppState extends State<SkalaAttendanceApp>
+    with WidgetsBindingObserver {
   final _navigatorKey = GlobalKey<NavigatorState>();
   final _profileStore = ProfileStore();
   final _themeModeStore = ThemeModeStore();
@@ -42,10 +45,12 @@ class _SkalaAttendanceAppState extends State<SkalaAttendanceApp> {
   bool _loading = true;
   bool _initialSetupCompleted = false;
   ThemeMode _themeMode = ThemeMode.system;
+  bool _checkingSetupRequirements = false;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _notificationScheduler =
         widget.notificationScheduler ?? LocalNotificationScheduler();
     _callbackLinkSettings =
@@ -77,19 +82,59 @@ class _SkalaAttendanceAppState extends State<SkalaAttendanceApp> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _scheduleController.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      unawaited(_recheckInitialSetupRequirements());
+    }
   }
 
   Future<void> _loadProfile() async {
     final profile = await _profileStore.load();
     final initialSetupCompleted = await _initialSetupStore.isCompleted();
+    final requirementsReady = profile != null && initialSetupCompleted
+        ? await _areInitialSetupRequirementsReady()
+        : false;
     if (!mounted) return;
     setState(() {
       _profile = profile;
-      _initialSetupCompleted = initialSetupCompleted;
+      _initialSetupCompleted = initialSetupCompleted && requirementsReady;
       _loading = false;
     });
+  }
+
+  Future<bool> _areInitialSetupRequirementsReady() async {
+    try {
+      final notificationsReady = await _notificationScheduler
+          .arePermissionsGranted();
+      final callbackLinkReady = await _callbackLinkSettings.isEnabled();
+      return notificationsReady && callbackLinkReady;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<void> _recheckInitialSetupRequirements() async {
+    if (_checkingSetupRequirements ||
+        _loading ||
+        _profile == null ||
+        !_initialSetupCompleted) {
+      return;
+    }
+    _checkingSetupRequirements = true;
+    try {
+      final ready = await _areInitialSetupRequirementsReady();
+      if (mounted && !ready) {
+        setState(() => _initialSetupCompleted = false);
+      }
+    } finally {
+      _checkingSetupRequirements = false;
+    }
   }
 
   Future<void> _saveInitialProfile(UserProfile profile) async {

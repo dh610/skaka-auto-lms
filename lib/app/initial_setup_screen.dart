@@ -201,7 +201,6 @@ class _InitialSetupScreenState extends State<InitialSetupScreen>
                       title: '인증 후 앱 복귀',
                       description: 'Google 인증 완료 후 이 앱으로 자동 복귀합니다.',
                       ready: _callbackLinkReady,
-                      actionLabel: '설정 방법',
                       onTap: _configureCallbackLink,
                     ),
                     if (_linkSetupIncomplete) ...[
@@ -253,7 +252,6 @@ class _SetupItem extends StatelessWidget {
     required this.title,
     required this.description,
     required this.ready,
-    this.actionLabel,
     required this.onTap,
   });
 
@@ -261,7 +259,6 @@ class _SetupItem extends StatelessWidget {
   final String title;
   final String description;
   final bool ready;
-  final String? actionLabel;
   final VoidCallback onTap;
 
   @override
@@ -294,20 +291,6 @@ class _SetupItem extends StatelessWidget {
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          if (!ready && actionLabel != null)
-                            TextButton(
-                              onPressed: onTap,
-                              style: TextButton.styleFrom(
-                                minimumSize: const Size(0, 32),
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 8,
-                                ),
-                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                              ),
-                              child: Text(actionLabel!),
-                            ),
-                          if (!ready && actionLabel != null)
-                            const SizedBox(height: 4),
                           Chip(
                             avatar: Icon(
                               ready
