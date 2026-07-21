@@ -50,11 +50,11 @@ class MainActivity : FlutterActivity() {
     private fun isAppLinkEnabled(): Boolean {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return true
         val manager = getSystemService(DomainVerificationManager::class.java)
-        val state = manager.getDomainVerificationUserState(packageName)
-            ?.hostToStateMap
-            ?.get(callbackHost)
-        return state == DomainVerificationUserState.DOMAIN_STATE_SELECTED ||
-            state == DomainVerificationUserState.DOMAIN_STATE_VERIFIED
+        val userState = manager.getDomainVerificationUserState(packageName) ?: return false
+        if (!userState.isLinkHandlingAllowed) return false
+        val hostState = userState.hostToStateMap[callbackHost]
+        return hostState == DomainVerificationUserState.DOMAIN_STATE_SELECTED ||
+            hostState == DomainVerificationUserState.DOMAIN_STATE_VERIFIED
     }
 
     private fun openAppLinkSettings(result: MethodChannel.Result) {

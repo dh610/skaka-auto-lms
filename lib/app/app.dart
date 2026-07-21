@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 
@@ -17,16 +18,18 @@ import 'initial_setup_store.dart';
 import 'theme_mode_store.dart';
 
 class SkalaAttendanceApp extends StatefulWidget {
-  const SkalaAttendanceApp({
+  SkalaAttendanceApp({
     super.key,
     this.notificationScheduler,
     this.callbackLinkSettings,
     this.initialSetupStore,
-  });
+    bool? isAndroid,
+  }) : isAndroid = isAndroid ?? Platform.isAndroid;
 
   final NotificationScheduler? notificationScheduler;
   final CallbackLinkSettings? callbackLinkSettings;
   final InitialSetupStore? initialSetupStore;
+  final bool isAndroid;
 
   @override
   State<SkalaAttendanceApp> createState() => _SkalaAttendanceAppState();
@@ -45,7 +48,6 @@ class _SkalaAttendanceAppState extends State<SkalaAttendanceApp>
   bool _loading = true;
   bool _initialSetupCompleted = false;
   ThemeMode _themeMode = ThemeMode.system;
-  bool _checkingSetupRequirements = false;
 
   @override
   void initState() {
@@ -112,7 +114,8 @@ class _SkalaAttendanceAppState extends State<SkalaAttendanceApp>
     try {
       final notificationsReady = await _notificationScheduler
           .arePermissionsGranted();
-      final callbackLinkReady = await _callbackLinkSettings.isEnabled();
+      final callbackLinkReady =
+          !widget.isAndroid || await _callbackLinkSettings.isEnabled();
       return notificationsReady && callbackLinkReady;
     } catch (_) {
       return false;
@@ -120,20 +123,12 @@ class _SkalaAttendanceAppState extends State<SkalaAttendanceApp>
   }
 
   Future<void> _recheckInitialSetupRequirements() async {
-    if (_checkingSetupRequirements ||
-        _loading ||
-        _profile == null ||
-        !_initialSetupCompleted) {
+    if (_loading || _profile == null || !_initialSetupCompleted) {
       return;
     }
-    _checkingSetupRequirements = true;
-    try {
-      final ready = await _areInitialSetupRequirementsReady();
-      if (mounted && !ready) {
-        setState(() => _initialSetupCompleted = false);
-      }
-    } finally {
-      _checkingSetupRequirements = false;
+    final ready = await _areInitialSetupRequirementsReady();
+    if (mounted && !ready && _initialSetupCompleted) {
+      setState(() => _initialSetupCompleted = false);
     }
   }
 
@@ -180,6 +175,7 @@ class _SkalaAttendanceAppState extends State<SkalaAttendanceApp>
               notificationScheduler: _notificationScheduler,
               callbackLinkSettings: _callbackLinkSettings,
               onFinished: _finishInitialSetup,
+              isAndroid: widget.isAndroid,
             )
           : AttendanceScreen(
               profile: _profile!,
@@ -189,6 +185,7 @@ class _SkalaAttendanceAppState extends State<SkalaAttendanceApp>
               themeMode: _themeMode,
               onThemeModeChanged: _changeThemeMode,
               callbackLinkSettings: _callbackLinkSettings,
+              isAndroid: widget.isAndroid,
             ),
     );
   }

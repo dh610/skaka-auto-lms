@@ -185,6 +185,38 @@ void main() {
     expect(find.text('설정 필요'), findsOneWidget);
   });
 
+  testWidgets('revoked Android app links reopen initial setup on app resume', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({
+      'profile.name': '윤동현',
+      'profile.region': 'P2',
+      'profile.classNumber': 8,
+      'initialSetup.completed': true,
+    });
+    final links = _FakeCallbackLinkSettings(enabled: true);
+
+    await tester.pumpWidget(
+      SkalaAttendanceApp(
+        notificationScheduler: _SetupNotificationScheduler(granted: true),
+        callbackLinkSettings: links,
+        isAndroid: true,
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('윤동현님, 안녕하세요'), findsOneWidget);
+
+    links.enabled = false;
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+    await tester.pump();
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpAndSettle();
+
+    expect(find.text('초기 설정'), findsOneWidget);
+    expect(find.text('인증 후 앱 복귀'), findsOneWidget);
+    expect(find.text('설정 필요'), findsOneWidget);
+  });
+
   testWidgets('schedule editor switches between weekly and one-time modes', (
     tester,
   ) async {
