@@ -30,6 +30,7 @@ class _InitialSetupScreenState extends State<InitialSetupScreen>
   bool _working = false;
   bool _notificationReady = false;
   bool _callbackLinkReady = false;
+  bool _waitingForNotificationSettings = false;
   bool _waitingForLinkSettings = false;
   bool _linkSetupIncomplete = false;
 
@@ -51,7 +52,10 @@ class _InitialSetupScreenState extends State<InitialSetupScreen>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed && _waitingForLinkSettings) {
+    if (state != AppLifecycleState.resumed) return;
+    if (_waitingForNotificationSettings) {
+      unawaited(_handleNotificationSettingsReturn());
+    } else if (_waitingForLinkSettings) {
       unawaited(_handleLinkSettingsReturn());
     }
   }
@@ -75,10 +79,14 @@ class _InitialSetupScreenState extends State<InitialSetupScreen>
     setState(() => _working = true);
     try {
       if (!_notificationReady) {
-        await widget.notificationScheduler.requestPermissions();
+        final granted = await widget.notificationScheduler.requestPermissions();
         _notificationReady = await widget.notificationScheduler
             .arePermissionsGranted();
         if (mounted) setState(() {});
+        if (!widget.isAndroid && !granted && !_notificationReady) {
+          await _openNotificationSettings();
+          return;
+        }
       }
       if (widget.isAndroid && !_callbackLinkReady) {
         if (mounted) setState(() => _working = false);
@@ -87,7 +95,9 @@ class _InitialSetupScreenState extends State<InitialSetupScreen>
       }
       if (_allReady) await widget.onFinished();
     } finally {
-      if (mounted && !_waitingForLinkSettings) {
+      if (mounted &&
+          !_waitingForNotificationSettings &&
+          !_waitingForLinkSettings) {
         setState(() => _working = false);
       }
     }
@@ -97,14 +107,41 @@ class _InitialSetupScreenState extends State<InitialSetupScreen>
     if (_working || _notificationReady) return;
     setState(() => _working = true);
     try {
-      await widget.notificationScheduler.requestPermissions();
+      final granted = await widget.notificationScheduler.requestPermissions();
       final ready = await widget.notificationScheduler.arePermissionsGranted();
       if (!mounted) return;
       setState(() => _notificationReady = ready);
+      if (!widget.isAndroid && !granted && !ready) {
+        await _openNotificationSettings();
+        return;
+      }
       if (_allReady) await widget.onFinished();
     } finally {
-      if (mounted) setState(() => _working = false);
+      if (mounted && !_waitingForNotificationSettings) {
+        setState(() => _working = false);
+      }
     }
+  }
+
+  Future<void> _openNotificationSettings() async {
+    _waitingForNotificationSettings = true;
+    try {
+      await widget.notificationScheduler.openPermissionSettings();
+    } catch (_) {
+      _waitingForNotificationSettings = false;
+      rethrow;
+    }
+  }
+
+  Future<void> _handleNotificationSettingsReturn() async {
+    final ready = await widget.notificationScheduler.arePermissionsGranted();
+    if (!mounted) return;
+    _waitingForNotificationSettings = false;
+    setState(() {
+      _notificationReady = ready;
+      _working = false;
+    });
+    if (_allReady) await widget.onFinished();
   }
 
   Future<void> _configureCallbackLink() async {

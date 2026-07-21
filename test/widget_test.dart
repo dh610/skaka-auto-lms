@@ -511,6 +511,38 @@ void main() {
     expect(finished, isTrue);
   });
 
+  testWidgets('denied iOS notifications open Settings and resume setup', (
+    tester,
+  ) async {
+    final notifications = _SetupNotificationScheduler(
+      granted: false,
+      grantOnRequest: false,
+    );
+    var finished = false;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: InitialSetupScreen(
+          notificationScheduler: notifications,
+          callbackLinkSettings: _FakeCallbackLinkSettings(enabled: true),
+          isAndroid: false,
+          onFinished: () async => finished = true,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('일정 알림'));
+    await tester.pumpAndSettle();
+
+    expect(notifications.openSettingsCount, 1);
+    expect(finished, isFalse);
+
+    notifications.granted = true;
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpAndSettle();
+    expect(finished, isTrue);
+  });
+
   testWidgets('initial setup resumes after Android app link approval', (
     tester,
   ) async {
@@ -548,10 +580,15 @@ void main() {
 }
 
 class _SetupNotificationScheduler extends _NoOpNotificationScheduler {
-  _SetupNotificationScheduler({required this.granted});
+  _SetupNotificationScheduler({
+    required this.granted,
+    this.grantOnRequest = true,
+  });
 
   bool granted;
+  final bool grantOnRequest;
   int requestCount = 0;
+  int openSettingsCount = 0;
 
   @override
   Future<bool> arePermissionsGranted() async => granted;
@@ -559,9 +596,12 @@ class _SetupNotificationScheduler extends _NoOpNotificationScheduler {
   @override
   Future<bool> requestPermissions() async {
     requestCount++;
-    granted = true;
-    return true;
+    if (grantOnRequest) granted = true;
+    return granted;
   }
+
+  @override
+  Future<void> openPermissionSettings() async => openSettingsCount++;
 }
 
 class _FakeCallbackLinkSettings implements CallbackLinkSettings {
@@ -600,6 +640,9 @@ class _NoOpNotificationScheduler implements NotificationScheduler {
 
   @override
   Future<bool> requestPermissions() async => true;
+
+  @override
+  Future<void> openPermissionSettings() async {}
 
   @override
   Future<int> sync(List<AttendanceSchedule> schedules, {DateTime? now}) async =>

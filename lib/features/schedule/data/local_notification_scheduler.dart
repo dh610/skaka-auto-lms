@@ -5,6 +5,7 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter/foundation.dart';
 import 'package:timezone/data/latest.dart' as tz_data;
 import 'package:timezone/timezone.dart' as tz;
+import 'package:url_launcher/url_launcher.dart';
 
 import '../application/notification_scheduler.dart';
 import '../domain/attendance_schedule.dart';
@@ -110,6 +111,16 @@ class LocalNotificationScheduler implements NotificationScheduler {
           false;
     }
     return false;
+  }
+
+  @override
+  Future<void> openPermissionSettings() async {
+    if (!Platform.isIOS) return;
+    final opened = await launchUrl(
+      Uri.parse('app-settings:'),
+      mode: LaunchMode.externalApplication,
+    );
+    if (!opened) throw StateError('iOS 알림 설정 화면을 열 수 없습니다.');
   }
 
   @override

@@ -127,6 +127,9 @@ class _FakeNotificationScheduler implements NotificationScheduler {
   }
 
   @override
+  Future<void> openPermissionSettings() async {}
+
+  @override
   Future<int> sync(List<AttendanceSchedule> schedules, {DateTime? now}) async {
     lastSchedules = schedules.toList();
     await syncGate?.future;
