@@ -232,7 +232,12 @@ class _ScheduleEditScreenState extends State<ScheduleEditScreen> {
         child: ListView(
           key: _scrollViewportKey,
           controller: _scrollController,
-          padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
+          padding: EdgeInsets.fromLTRB(
+            20,
+            8,
+            20,
+            32 + MediaQuery.viewPaddingOf(context).bottom,
+          ),
           children: [
             _SectionTitle(
               title: '출결 동작',

@@ -307,6 +307,29 @@ void main() {
     },
   );
 
+  testWidgets('schedule editor keeps inline save above system navigation', (
+    tester,
+  ) async {
+    addTearDown(tester.view.resetPadding);
+    tester.view.padding = const FakeViewPadding(bottom: 48);
+
+    await tester.pumpWidget(const MaterialApp(home: ScheduleEditScreen()));
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('inline-save-button')),
+      300,
+    );
+    await tester.pumpAndSettle();
+
+    final buttonBottom = tester
+        .getBottomRight(find.byKey(const Key('inline-save-button')))
+        .dy;
+    expect(
+      buttonBottom,
+      lessThanOrEqualTo(tester.view.physicalSize.height - 48),
+    );
+  });
+
   testWidgets('schedule editor briefly reveals its scrollbar on entry', (
     tester,
   ) async {
