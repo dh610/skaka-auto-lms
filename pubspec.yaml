@@ -1,7 +1,7 @@
 name: skala_attendance
 description: SKALA LMS attendance helper for Android and iOS.
 publish_to: none
-version: 1.0.0+2007
+version: 1.0.0+2008
 
 environment:
   sdk: ^3.12.2
