@@ -48,6 +48,7 @@ class _SkalaAttendanceAppState extends State<SkalaAttendanceApp>
   late final NotificationScheduler _notificationScheduler;
   late final CallbackLinkSettings _callbackLinkSettings;
   late final ScheduleController _scheduleController;
+  late final Future<void> _scheduleInitialization;
   late final ProfileVerifier _profileVerifier;
   UserProfile? _profile;
   bool _loading = true;
@@ -68,9 +69,9 @@ class _SkalaAttendanceAppState extends State<SkalaAttendanceApp>
       ScheduleStore(),
       _notificationScheduler,
     );
+    _scheduleInitialization = _scheduleController.load();
     _loadProfile();
     _loadThemeMode();
-    _initializeSchedules();
   }
 
   Future<void> _loadThemeMode() async {
@@ -82,10 +83,6 @@ class _SkalaAttendanceAppState extends State<SkalaAttendanceApp>
     if (_themeMode == themeMode) return;
     setState(() => _themeMode = themeMode);
     await _themeModeStore.save(themeMode);
-  }
-
-  Future<void> _initializeSchedules() async {
-    await _scheduleController.load();
   }
 
   @override
@@ -152,10 +149,14 @@ class _SkalaAttendanceAppState extends State<SkalaAttendanceApp>
   Future<void> _verifyProfile(UserProfile profile) =>
       _profileVerifier.verify(profile);
 
-  Future<void> _finishInitialSetup() async {
-    await _initialSetupStore.markCompleted();
+  Future<bool> _finishInitialSetup() async {
+    await _scheduleInitialization;
+    final synchronized = await _scheduleController.resyncNotifications();
     await _scheduleController.refreshNotificationStatus();
+    if (!synchronized) return false;
+    await _initialSetupStore.markCompleted();
     if (mounted) setState(() => _initialSetupCompleted = true);
+    return true;
   }
 
   Future<void> _editProfile() async {

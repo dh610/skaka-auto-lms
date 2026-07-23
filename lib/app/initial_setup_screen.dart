@@ -17,7 +17,7 @@ class InitialSetupScreen extends StatefulWidget {
 
   final NotificationScheduler notificationScheduler;
   final CallbackLinkSettings callbackLinkSettings;
-  final Future<void> Function() onFinished;
+  final Future<bool> Function() onFinished;
   final bool isAndroid;
 
   @override
@@ -35,6 +35,7 @@ class _InitialSetupScreenState extends State<InitialSetupScreen>
   bool _linkSetupIncomplete = false;
   bool _pendingCallbackGuide = false;
   bool _checkingPendingCallbackGuide = false;
+  String? _completionError;
 
   bool get _allReady =>
       _notificationReady && (!widget.isAndroid || _callbackLinkReady);
@@ -75,7 +76,7 @@ class _InitialSetupScreenState extends State<InitialSetupScreen>
       _callbackLinkReady = callbackLinkReady;
       _loading = false;
     });
-    if (_allReady) await widget.onFinished();
+    if (_allReady) await _finishSetup();
   }
 
   Future<void> _continueSetup() async {
@@ -101,7 +102,7 @@ class _InitialSetupScreenState extends State<InitialSetupScreen>
         await _configureCallbackLink();
         return;
       }
-      if (_allReady) await widget.onFinished();
+      if (_allReady) await _finishSetup(alreadyWorking: true);
     } finally {
       if (mounted &&
           !_waitingForNotificationSettings &&
@@ -140,7 +141,7 @@ class _InitialSetupScreenState extends State<InitialSetupScreen>
         await _openNotificationSettings();
         return;
       }
-      if (_allReady) await widget.onFinished();
+      if (_allReady) await _finishSetup(alreadyWorking: true);
     } finally {
       if (mounted && !_waitingForNotificationSettings) {
         setState(() => _working = false);
@@ -171,7 +172,7 @@ class _InitialSetupScreenState extends State<InitialSetupScreen>
       _notificationReady = ready;
       _working = false;
     });
-    if (_allReady) await widget.onFinished();
+    if (_allReady) await _finishSetup();
   }
 
   Future<void> _configureCallbackLink() async {
@@ -210,7 +211,7 @@ class _InitialSetupScreenState extends State<InitialSetupScreen>
       _working = false;
     });
     if (_allReady) {
-      await widget.onFinished();
+      await _finishSetup();
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -223,10 +224,27 @@ class _InitialSetupScreenState extends State<InitialSetupScreen>
     }
   }
 
-  Future<void> _skip() async {
-    if (_working) return;
-    setState(() => _working = true);
-    await widget.onFinished();
+  Future<void> _finishSetup({bool alreadyWorking = false}) async {
+    if (!_allReady || (!alreadyWorking && _working)) return;
+    if (mounted) {
+      setState(() {
+        if (!alreadyWorking) _working = true;
+        _completionError = null;
+      });
+    }
+    var completed = false;
+    try {
+      completed = await widget.onFinished();
+    } catch (_) {
+      completed = false;
+    }
+    if (!mounted) return;
+    setState(() {
+      if (!alreadyWorking) _working = false;
+      _completionError = completed
+          ? null
+          : '알림을 예약하지 못했습니다. 설정을 확인한 뒤 다시 시도해 주세요.';
+    });
   }
 
   @override
@@ -282,6 +300,17 @@ class _InitialSetupScreenState extends State<InitialSetupScreen>
                     ],
                   ],
                   const SizedBox(height: 32),
+                  if (_completionError case final error?) ...[
+                    Text(
+                      error,
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: Theme.of(context).colorScheme.error,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                  ],
                   FilledButton(
                     onPressed: _working ? null : _continueSetup,
                     child: Text(
@@ -290,20 +319,6 @@ class _InitialSetupScreenState extends State<InitialSetupScreen>
                           : _allReady
                           ? '설정 완료'
                           : '필요한 설정 계속하기',
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  TextButton(
-                    onPressed: _working ? null : _skip,
-                    child: const Text('나중에 설정'),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    '나중에 설정해도 일정 관리와 Google 인증을 시작할 때 '
-                    '필요한 권한을 다시 안내합니다.',
-                    textAlign: TextAlign.center,
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
                     ),
                   ),
                 ],

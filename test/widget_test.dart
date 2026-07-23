@@ -270,6 +270,40 @@ void main() {
     expect(preferences.getBool('initialSetup.completed'), isFalse);
   });
 
+  testWidgets('restored required permissions resync before returning home', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({
+      'profile.name': '윤동현',
+      'profile.region': 'P2',
+      'profile.classNumber': 8,
+      'initialSetup.completed': true,
+    });
+    final notifications = _SetupNotificationScheduler(granted: true);
+
+    await tester.pumpWidget(
+      SkalaAttendanceApp(
+        notificationScheduler: notifications,
+        callbackLinkSettings: _FakeCallbackLinkSettings(enabled: true),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('윤동현님, 안녕하세요'), findsOneWidget);
+
+    notifications.granted = false;
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpAndSettle();
+    expect(find.text('초기 설정'), findsOneWidget);
+    final syncCountBeforeRecovery = notifications.syncCount;
+
+    await tester.tap(find.text('일정 알림'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('윤동현님, 안녕하세요'), findsOneWidget);
+    expect(notifications.syncCount, syncCountBeforeRecovery + 1);
+  });
+
   testWidgets('revoked Android app links reopen initial setup on app resume', (
     tester,
   ) async {
@@ -930,12 +964,50 @@ void main() {
     expect(find.text('초기 설정'), findsOneWidget);
     expect(find.text('설정 필요'), findsOneWidget);
     expect(find.text('설정하기'), findsNothing);
+    expect(find.text('나중에 설정'), findsNothing);
+    expect(find.textContaining('나중에 설정해도'), findsNothing);
     await tester.tap(find.text('일정 알림'));
     await tester.pumpAndSettle();
 
     expect(notifications.requestCount, 1);
     expect(finished, isTrue);
   });
+
+  testWidgets(
+    'required setup waits for notification resync and retries failure',
+    (tester) async {
+      SharedPreferences.setMockInitialValues({
+        'profile.name': '윤동현',
+        'profile.region': 'P2',
+        'profile.classNumber': 8,
+      });
+      final notifications = _SetupNotificationScheduler(
+        granted: true,
+        failSync: true,
+      );
+
+      await tester.pumpWidget(
+        SkalaAttendanceApp(
+          notificationScheduler: notifications,
+          callbackLinkSettings: _FakeCallbackLinkSettings(enabled: true),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('초기 설정'), findsOneWidget);
+      expect(find.textContaining('알림을 예약하지 못했습니다'), findsOneWidget);
+      expect(find.text('윤동현님, 안녕하세요'), findsNothing);
+      final preferences = await SharedPreferences.getInstance();
+      expect(preferences.getBool('initialSetup.completed'), isNot(true));
+
+      notifications.failSync = false;
+      await tester.tap(find.text('설정 완료'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('윤동현님, 안녕하세요'), findsOneWidget);
+      expect(preferences.getBool('initialSetup.completed'), isTrue);
+    },
+  );
 
   testWidgets('denied iOS notifications open Settings and resume setup', (
     tester,
@@ -1025,7 +1097,7 @@ void main() {
             notificationScheduler: notifications,
             callbackLinkSettings: links,
             isAndroid: true,
-            onFinished: () async {},
+            onFinished: () async => true,
           ),
         ),
       );
@@ -1056,12 +1128,15 @@ class _SetupNotificationScheduler extends _NoOpNotificationScheduler {
   _SetupNotificationScheduler({
     required this.granted,
     this.grantOnRequest = true,
+    this.failSync = false,
   });
 
   bool granted;
   final bool grantOnRequest;
+  bool failSync;
   int requestCount = 0;
   int openSettingsCount = 0;
+  int syncCount = 0;
 
   @override
   Future<bool> arePermissionsGranted() async => granted;
@@ -1075,6 +1150,13 @@ class _SetupNotificationScheduler extends _NoOpNotificationScheduler {
 
   @override
   Future<void> openPermissionSettings() async => openSettingsCount++;
+
+  @override
+  Future<int> sync(List<AttendanceSchedule> schedules, {DateTime? now}) async {
+    syncCount++;
+    if (failSync) throw StateError('sync failed');
+    return schedules.length;
+  }
 }
 
 class _FakeCallbackLinkSettings implements CallbackLinkSettings {
