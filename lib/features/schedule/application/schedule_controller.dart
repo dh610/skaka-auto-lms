@@ -16,6 +16,8 @@ class ScheduleController extends ChangeNotifier {
   String _notificationMessage = '알림 권한을 설정하면 지정 시각에 안내합니다.';
   int _pendingNotificationCount = 0;
   bool _notificationsConfigured = false;
+  Future<void>? _notificationSyncFuture;
+  bool _notificationSyncRequested = false;
 
   List<AttendanceSchedule> get schedules => List.unmodifiable(_schedules);
   bool get loading => _loading;
@@ -28,7 +30,7 @@ class ScheduleController extends ChangeNotifier {
     _sort();
     _loading = false;
     notifyListeners();
-    await _syncNotifications();
+    await _requestNotificationSync();
     await refreshNotificationStatus();
   }
 
@@ -73,7 +75,7 @@ class ScheduleController extends ChangeNotifier {
     if (scheduler == null) return;
     try {
       final exact = await scheduler.requestPermissions();
-      await _syncNotifications();
+      await _requestNotificationSync();
       _notificationsConfigured = exact;
       _notificationMessage = exact
           ? '정확한 알림이 설정되었습니다.'
@@ -101,16 +103,35 @@ class ScheduleController extends ChangeNotifier {
     if (requestPermission) {
       await configureNotifications();
     } else {
-      await _syncNotifications();
+      await _requestNotificationSync();
     }
     notifyListeners();
   }
 
-  Future<void> _syncNotifications() async {
+  Future<void> _requestNotificationSync() {
+    _notificationSyncRequested = true;
+    return _notificationSyncFuture ??= _drainNotificationSyncRequests();
+  }
+
+  Future<void> _drainNotificationSyncRequests() async {
+    try {
+      while (_notificationSyncRequested) {
+        _notificationSyncRequested = false;
+        final snapshot = List<AttendanceSchedule>.unmodifiable(_schedules);
+        await _syncNotificationSnapshot(snapshot);
+      }
+    } finally {
+      _notificationSyncFuture = null;
+    }
+  }
+
+  Future<void> _syncNotificationSnapshot(
+    List<AttendanceSchedule> schedules,
+  ) async {
     final scheduler = _notificationScheduler;
     if (scheduler == null) return;
     try {
-      _pendingNotificationCount = await scheduler.sync(_schedules);
+      _pendingNotificationCount = await scheduler.sync(schedules);
       if (_pendingNotificationCount > 0) {
         _notificationMessage = '설정한 일정의 알림이 예약되어 있습니다.';
       } else {

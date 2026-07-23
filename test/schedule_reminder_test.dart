@@ -98,6 +98,60 @@ void main() {
       controller.dispose();
     },
   );
+
+  test(
+    'overlapping resync requests run serially and finish with latest schedules',
+    () async {
+      final notifications = _GatedNotificationScheduler();
+      final controller = ScheduleController(ScheduleStore(), notifications);
+
+      final loadFuture = controller.load();
+      await notifications.firstSyncStarted.future;
+
+      const latest = AttendanceSchedule(
+        id: 'weekday-check-out',
+        action: AttendanceAction.checkOut,
+        hour: 18,
+        minute: 30,
+        weekdays: {1, 2, 3, 4, 5},
+        enabled: true,
+      );
+      final saveFuture = controller.saveSchedule(latest);
+      await notifications.permissionRequested.future;
+      await Future<void>.delayed(Duration.zero);
+
+      expect(notifications.maximumActiveSyncs, 1);
+      expect(notifications.snapshots, hasLength(1));
+
+      notifications.releaseFirstSync.complete();
+      await Future.wait([loadFuture, saveFuture]);
+
+      expect(notifications.maximumActiveSyncs, 1);
+      expect(notifications.snapshots, hasLength(2));
+      expect(notifications.snapshots.first, isEmpty);
+      expect(notifications.snapshots.last, [latest]);
+      controller.dispose();
+    },
+  );
+
+  test('startup resync uses the latest persisted schedules', () async {
+    const latest = AttendanceSchedule(
+      id: 'persisted-check-out',
+      action: AttendanceAction.checkOut,
+      hour: 18,
+      minute: 30,
+      weekdays: {1, 2, 3, 4, 5},
+      enabled: true,
+    );
+    await ScheduleStore().save([latest]);
+    final notifications = _FakeNotificationScheduler();
+    final restored = ScheduleController(ScheduleStore(), notifications);
+
+    await restored.load();
+
+    expect(notifications.lastSchedules.single.toJson(), latest.toJson());
+    restored.dispose();
+  });
 }
 
 class _FakeNotificationScheduler implements NotificationScheduler {
@@ -134,5 +188,37 @@ class _FakeNotificationScheduler implements NotificationScheduler {
     lastSchedules = schedules.toList();
     await syncGate?.future;
     return schedules.length;
+  }
+}
+
+class _GatedNotificationScheduler extends _FakeNotificationScheduler {
+  final firstSyncStarted = Completer<void>();
+  final releaseFirstSync = Completer<void>();
+  final permissionRequested = Completer<void>();
+  final List<List<AttendanceSchedule>> snapshots = [];
+  int activeSyncs = 0;
+  int maximumActiveSyncs = 0;
+
+  @override
+  Future<bool> requestPermissions() async {
+    if (!permissionRequested.isCompleted) permissionRequested.complete();
+    return true;
+  }
+
+  @override
+  Future<int> sync(List<AttendanceSchedule> schedules, {DateTime? now}) async {
+    final snapshot = List<AttendanceSchedule>.of(schedules);
+    snapshots.add(snapshot);
+    activeSyncs++;
+    if (activeSyncs > maximumActiveSyncs) maximumActiveSyncs = activeSyncs;
+    try {
+      if (snapshots.length == 1) {
+        firstSyncStarted.complete();
+        await releaseFirstSync.future;
+      }
+      return snapshot.length;
+    } finally {
+      activeSyncs--;
+    }
   }
 }

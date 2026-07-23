@@ -223,6 +223,10 @@ class AttendanceController extends ChangeNotifier {
     _setState(message: '예약된 ${action.label} 동작은 현재 출결 상태에서 실행할 수 없습니다.');
   }
 
+  void reportStaleScheduledOccurrence() {
+    _setState(message: '변경되거나 삭제된 일정의 알림이라 실행하지 않았습니다.');
+  }
+
   void reportLinkError(Object error) {
     _setState(
       message: '인증 결과를 앱으로 가져오지 못했습니다. Google 인증을 다시 진행해주세요.',

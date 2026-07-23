@@ -73,6 +73,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     );
     unawaited(_controller.loadCompletionHistory());
     _controller.addListener(_handleControllerChange);
+    widget.scheduleController.addListener(_handleNotificationTap);
     _linkSubscription = (widget.appLinkStream ?? AppLinks().uriLinkStream)
         .listen(
           _controller.handleCallback,
@@ -86,10 +87,21 @@ class _AttendanceScreenState extends State<AttendanceScreen>
 
   void _handleNotificationTap() {
     final payload = widget.notificationScheduler.tapPayload.value;
-    if (payload == null || _controller.busy) return;
+    if (!mounted ||
+        payload == null ||
+        widget.scheduleController.loading ||
+        _controller.busy ||
+        _pendingScheduledAction != null ||
+        _handlingScheduledAction) {
+      return;
+    }
     widget.notificationScheduler.consumeTap();
     final occurrence = _occurrenceFromPayload(payload);
     if (occurrence == null) return;
+    if (!_isCurrentScheduledOccurrence(occurrence)) {
+      _controller.reportStaleScheduledOccurrence();
+      return;
+    }
     _pendingScheduledAction = occurrence.action;
     unawaited(
       _requestAuthentication(
@@ -190,6 +202,19 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     }
   }
 
+  bool _isCurrentScheduledOccurrence(_ScheduledOccurrence occurrence) {
+    final matchingSchedules = widget.scheduleController.schedulesFor(
+      occurrence.scheduledAt,
+    );
+    return matchingSchedules.any(
+      (schedule) =>
+          schedule.id == occurrence.scheduleId &&
+          schedule.action == occurrence.action &&
+          schedule.hour == occurrence.scheduledAt.hour &&
+          schedule.minute == occurrence.scheduledAt.minute,
+    );
+  }
+
   void _handleControllerChange() {
     final action = _pendingScheduledAction;
     final snapshot = _controller.snapshot;
@@ -198,18 +223,23 @@ class _AttendanceScreenState extends State<AttendanceScreen>
         !_controller.authenticated ||
         _controller.busy ||
         _handlingScheduledAction) {
+      _handleNotificationTap();
       return;
     }
     _pendingScheduledAction = null;
     _handlingScheduledAction = true;
     WidgetsBinding.instance.addPostFrameCallback((_) async {
-      if (!mounted) return;
-      if (snapshot.availableActions.contains(action)) {
-        await _confirmAction(action);
-      } else {
-        _controller.reportUnavailableScheduledAction(action);
+      try {
+        if (!mounted) return;
+        if (snapshot.availableActions.contains(action)) {
+          await _confirmAction(action);
+        } else {
+          _controller.reportUnavailableScheduledAction(action);
+        }
+      } finally {
+        _handlingScheduledAction = false;
+        _handleNotificationTap();
       }
-      _handlingScheduledAction = false;
     });
     WidgetsBinding.instance.scheduleFrame();
   }
@@ -229,6 +259,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     widget.notificationScheduler.tapPayload.removeListener(
       _handleNotificationTap,
     );
+    widget.scheduleController.removeListener(_handleNotificationTap);
     _controller.removeListener(_handleControllerChange);
     _controller.dispose();
     super.dispose();

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/foundation.dart';
@@ -517,7 +518,7 @@ void main() {
       region: CampusRegion.pangyo5f,
       classNumber: 8,
     );
-    final scheduledAt = DateTime.now().subtract(const Duration(minutes: 1));
+    final scheduledAt = DateTime(2026, 7, 23, 9);
     final notifications = _NoOpNotificationScheduler()
       ..emit(
         '{"scheduleId":"check-in","action":"checkIn",'
@@ -525,6 +526,18 @@ void main() {
       );
     final schedules = ScheduleController(ScheduleStore());
     await schedules.load();
+    await schedules.saveSchedule(
+      AttendanceSchedule(
+        id: 'check-in',
+        action: AttendanceAction.checkIn,
+        hour: 9,
+        minute: 0,
+        weekdays: const {},
+        enabled: true,
+        recurrence: ScheduleRecurrence.once,
+        date: DateTime(2026, 7, 23),
+      ),
+    );
     final gateway = _WidgetTestAttendanceGateway();
 
     await tester.pumpWidget(
@@ -555,7 +568,7 @@ void main() {
       region: CampusRegion.pangyo5f,
       classNumber: 8,
     );
-    final scheduledAt = DateTime.now().subtract(const Duration(minutes: 1));
+    final scheduledAt = DateTime(2026, 7, 23, 12);
     final notifications = _NoOpNotificationScheduler()
       ..emit(
         '{"scheduleId":"leave","action":"leave",'
@@ -563,6 +576,18 @@ void main() {
       );
     final schedules = ScheduleController(ScheduleStore());
     await schedules.load();
+    await schedules.saveSchedule(
+      AttendanceSchedule(
+        id: 'leave',
+        action: AttendanceAction.leave,
+        hour: 12,
+        minute: 0,
+        weekdays: const {},
+        enabled: true,
+        recurrence: ScheduleRecurrence.once,
+        date: DateTime(2026, 7, 23),
+      ),
+    );
     final links = StreamController<Uri>();
 
     await tester.pumpWidget(
@@ -594,6 +619,221 @@ void main() {
     expect(find.text('외출 전송'), findsOneWidget);
 
     await links.close();
+    schedules.dispose();
+  });
+
+  testWidgets('notification for a deleted schedule does not authenticate', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    const profile = UserProfile(
+      name: '윤동현',
+      region: CampusRegion.pangyo5f,
+      classNumber: 8,
+    );
+    final schedules = ScheduleController(ScheduleStore());
+    await schedules.load();
+    final notifications = _NoOpNotificationScheduler();
+    final gateway = _WidgetTestAttendanceGateway();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: AttendanceScreen(
+          profile: profile,
+          scheduleController: schedules,
+          notificationScheduler: notifications,
+          onEditProfile: () async {},
+          gateway: gateway,
+          appLinkStream: const Stream.empty(),
+          isAndroid: true,
+          callbackLinkSettings: _FakeCallbackLinkSettings(enabled: true),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    notifications.emit(
+      '{"scheduleId":"deleted-check-in","action":"checkIn",'
+      '"scheduledAt":"2026-07-23T09:00:00.000"}',
+    );
+    await tester.pumpAndSettle();
+
+    expect(gateway.authenticationCallCount, 0);
+    expect(notifications.tapPayload.value, isNull);
+    expect(find.textContaining('변경되거나 삭제된 일정의 알림'), findsOneWidget);
+    schedules.dispose();
+  });
+
+  testWidgets('notification with an old time does not authenticate', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    const profile = UserProfile(
+      name: '윤동현',
+      region: CampusRegion.pangyo5f,
+      classNumber: 8,
+    );
+    final schedules = ScheduleController(ScheduleStore());
+    await schedules.load();
+    await schedules.saveSchedule(
+      AttendanceSchedule(
+        id: 'changed-check-out',
+        action: AttendanceAction.checkOut,
+        hour: 18,
+        minute: 30,
+        weekdays: const {},
+        enabled: true,
+        recurrence: ScheduleRecurrence.once,
+        date: DateTime(2026, 7, 23),
+      ),
+    );
+    final notifications = _NoOpNotificationScheduler();
+    final gateway = _WidgetTestAttendanceGateway();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: AttendanceScreen(
+          profile: profile,
+          scheduleController: schedules,
+          notificationScheduler: notifications,
+          onEditProfile: () async {},
+          gateway: gateway,
+          appLinkStream: const Stream.empty(),
+          isAndroid: true,
+          callbackLinkSettings: _FakeCallbackLinkSettings(enabled: true),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    notifications.emit(
+      '{"scheduleId":"changed-check-out","action":"checkOut",'
+      '"scheduledAt":"2026-07-23T18:00:00.000"}',
+    );
+    await tester.pumpAndSettle();
+
+    expect(gateway.authenticationCallCount, 0);
+    expect(notifications.tapPayload.value, isNull);
+    expect(find.textContaining('변경되거나 삭제된 일정의 알림'), findsOneWidget);
+    schedules.dispose();
+  });
+
+  testWidgets('notification tapped while busy is handled after busy clears', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    const profile = UserProfile(
+      name: '윤동현',
+      region: CampusRegion.pangyo5f,
+      classNumber: 8,
+    );
+    final schedules = ScheduleController(ScheduleStore());
+    await schedules.load();
+    await schedules.saveSchedule(
+      AttendanceSchedule(
+        id: 'queued-check-in',
+        action: AttendanceAction.checkIn,
+        hour: 9,
+        minute: 0,
+        weekdays: const {},
+        enabled: true,
+        recurrence: ScheduleRecurrence.once,
+        date: DateTime(2026, 7, 23),
+      ),
+    );
+    final notifications = _NoOpNotificationScheduler();
+    final links = StreamController<Uri>();
+    final fetchGate = Completer<void>();
+    final gateway = _WidgetTestAttendanceGateway(fetchGate: fetchGate);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: AttendanceScreen(
+          profile: profile,
+          scheduleController: schedules,
+          notificationScheduler: notifications,
+          onEditProfile: () async {},
+          gateway: gateway,
+          appLinkStream: links.stream,
+          isAndroid: true,
+          callbackLinkSettings: _FakeCallbackLinkSettings(enabled: true),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    links.add(Uri.parse('https://att.skala-ai.com?token=test-token'));
+    await tester.pump();
+    notifications.emit(
+      '{"scheduleId":"queued-check-in","action":"checkIn",'
+      '"scheduledAt":"2026-07-23T09:00:00.000"}',
+    );
+    await tester.pump();
+
+    expect(notifications.tapPayload.value, isNotNull);
+    fetchGate.complete();
+    await tester.pumpAndSettle();
+
+    expect(notifications.tapPayload.value, isNull);
+    expect(gateway.authenticationCallCount, 1);
+    await links.close();
+    schedules.dispose();
+  });
+
+  testWidgets('notification waits for saved schedules to finish loading', (
+    tester,
+  ) async {
+    final stored = AttendanceSchedule(
+      id: 'loading-check-in',
+      action: AttendanceAction.checkIn,
+      hour: 9,
+      minute: 0,
+      weekdays: const {},
+      enabled: true,
+      recurrence: ScheduleRecurrence.once,
+      date: DateTime(2026, 7, 23),
+    );
+    SharedPreferences.setMockInitialValues({
+      'attendance.schedules': jsonEncode([stored.toJson()]),
+    });
+    const profile = UserProfile(
+      name: '윤동현',
+      region: CampusRegion.pangyo5f,
+      classNumber: 8,
+    );
+    final schedules = ScheduleController(ScheduleStore());
+    final notifications = _NoOpNotificationScheduler()
+      ..emit(
+        '{"scheduleId":"loading-check-in","action":"checkIn",'
+        '"scheduledAt":"2026-07-23T09:00:00.000"}',
+      );
+    final gateway = _WidgetTestAttendanceGateway();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: AttendanceScreen(
+          profile: profile,
+          scheduleController: schedules,
+          notificationScheduler: notifications,
+          onEditProfile: () async {},
+          gateway: gateway,
+          appLinkStream: const Stream.empty(),
+          isAndroid: true,
+          callbackLinkSettings: _FakeCallbackLinkSettings(enabled: true),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+
+    expect(gateway.authenticationCallCount, 0);
+    expect(notifications.tapPayload.value, isNotNull);
+
+    await schedules.load();
+    await tester.pumpAndSettle();
+
+    expect(gateway.authenticationCallCount, 1);
+    expect(notifications.tapPayload.value, isNull);
     schedules.dispose();
   });
 
@@ -872,18 +1112,23 @@ class _DelayedInitializationNotificationScheduler
 class _WidgetTestAttendanceGateway implements AttendanceGateway {
   _WidgetTestAttendanceGateway({
     this.snapshot = const AttendanceSnapshot(networkAllowed: true),
+    this.fetchGate,
   });
 
   final AttendanceSnapshot snapshot;
+  final Completer<void>? fetchGate;
   UserProfile? authenticationProfile;
+  int authenticationCallCount = 0;
 
   @override
   Future<void> startBrowserAuthentication(UserProfile profile) async {
+    authenticationCallCount++;
     authenticationProfile = profile;
   }
 
   @override
   Future<AttendanceSnapshot> fetchToday(String token) async {
+    await fetchGate?.future;
     return snapshot;
   }
 
