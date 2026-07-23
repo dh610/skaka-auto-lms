@@ -152,6 +152,21 @@ void main() {
     expect(notifications.lastSchedules.single.toJson(), latest.toJson());
     restored.dispose();
   });
+
+  test('explicit resync reports failure and later success', () async {
+    final notifications = _FakeNotificationScheduler();
+    final controller = ScheduleController(ScheduleStore(), notifications);
+    await controller.load();
+
+    notifications.failSync = true;
+    expect(await controller.resyncNotifications(), isFalse);
+    expect(controller.notificationMessage, startsWith('알림 예약 실패:'));
+
+    notifications.failSync = false;
+    expect(await controller.resyncNotifications(), isTrue);
+    expect(notifications.syncCount, 3);
+    controller.dispose();
+  });
 }
 
 class _FakeNotificationScheduler implements NotificationScheduler {
@@ -160,6 +175,8 @@ class _FakeNotificationScheduler implements NotificationScheduler {
   final _tapPayload = ValueNotifier<String?>(null);
   final Completer<void>? syncGate;
   int permissionRequests = 0;
+  int syncCount = 0;
+  bool failSync = false;
   List<AttendanceSchedule> lastSchedules = [];
 
   @override
@@ -185,8 +202,10 @@ class _FakeNotificationScheduler implements NotificationScheduler {
 
   @override
   Future<int> sync(List<AttendanceSchedule> schedules, {DateTime? now}) async {
+    syncCount++;
     lastSchedules = schedules.toList();
     await syncGate?.future;
+    if (failSync) throw StateError('sync failed');
     return schedules.length;
   }
 }

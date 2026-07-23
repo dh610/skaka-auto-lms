@@ -16,7 +16,7 @@ class ScheduleController extends ChangeNotifier {
   String _notificationMessage = '알림 권한을 설정하면 지정 시각에 안내합니다.';
   int _pendingNotificationCount = 0;
   bool _notificationsConfigured = false;
-  Future<void>? _notificationSyncFuture;
+  Future<bool>? _notificationSyncFuture;
   bool _notificationSyncRequested = false;
 
   List<AttendanceSchedule> get schedules => List.unmodifiable(_schedules);
@@ -108,28 +108,32 @@ class ScheduleController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> _requestNotificationSync() {
+  Future<bool> resyncNotifications() => _requestNotificationSync();
+
+  Future<bool> _requestNotificationSync() {
     _notificationSyncRequested = true;
     return _notificationSyncFuture ??= _drainNotificationSyncRequests();
   }
 
-  Future<void> _drainNotificationSyncRequests() async {
+  Future<bool> _drainNotificationSyncRequests() async {
+    var succeeded = true;
     try {
       while (_notificationSyncRequested) {
         _notificationSyncRequested = false;
         final snapshot = List<AttendanceSchedule>.unmodifiable(_schedules);
-        await _syncNotificationSnapshot(snapshot);
+        succeeded = await _syncNotificationSnapshot(snapshot);
       }
+      return succeeded;
     } finally {
       _notificationSyncFuture = null;
     }
   }
 
-  Future<void> _syncNotificationSnapshot(
+  Future<bool> _syncNotificationSnapshot(
     List<AttendanceSchedule> schedules,
   ) async {
     final scheduler = _notificationScheduler;
-    if (scheduler == null) return;
+    if (scheduler == null) return true;
     try {
       _pendingNotificationCount = await scheduler.sync(schedules);
       if (_pendingNotificationCount > 0) {
@@ -137,8 +141,10 @@ class ScheduleController extends ChangeNotifier {
       } else {
         _notificationMessage = '앞으로 예정된 알림이 없습니다.';
       }
+      return true;
     } catch (error) {
       _notificationMessage = '알림 예약 실패: $error';
+      return false;
     }
   }
 
