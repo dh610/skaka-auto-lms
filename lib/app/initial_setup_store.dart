@@ -12,4 +12,9 @@ class InitialSetupStore {
     final preferences = await SharedPreferences.getInstance();
     await preferences.setBool(_completedKey, true);
   }
+
+  Future<void> markIncomplete() async {
+    final preferences = await SharedPreferences.getInstance();
+    await preferences.setBool(_completedKey, false);
+  }
 }

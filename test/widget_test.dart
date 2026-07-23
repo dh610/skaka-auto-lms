@@ -243,6 +243,31 @@ void main() {
 
     expect(find.text('초기 설정'), findsOneWidget);
     expect(find.text('설정 필요'), findsOneWidget);
+    final preferences = await SharedPreferences.getInstance();
+    expect(preferences.getBool('initialSetup.completed'), isFalse);
+  });
+
+  testWidgets('revoked permissions clear saved setup on next launch', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({
+      'profile.name': '윤동현',
+      'profile.region': 'P2',
+      'profile.classNumber': 8,
+      'initialSetup.completed': true,
+    });
+
+    await tester.pumpWidget(
+      SkalaAttendanceApp(
+        notificationScheduler: _SetupNotificationScheduler(granted: false),
+        callbackLinkSettings: _FakeCallbackLinkSettings(enabled: true),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('초기 설정'), findsOneWidget);
+    final preferences = await SharedPreferences.getInstance();
+    expect(preferences.getBool('initialSetup.completed'), isFalse);
   });
 
   testWidgets('revoked Android app links reopen initial setup on app resume', (

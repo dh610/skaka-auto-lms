@@ -109,6 +109,9 @@ class _SkalaAttendanceAppState extends State<SkalaAttendanceApp>
     final requirementsReady = profile != null && initialSetupCompleted
         ? await _areInitialSetupRequirementsReady()
         : false;
+    if (profile != null && initialSetupCompleted && !requirementsReady) {
+      await _initialSetupStore.markIncomplete();
+    }
     if (!mounted) return;
     setState(() {
       _profile = profile;
@@ -135,6 +138,8 @@ class _SkalaAttendanceAppState extends State<SkalaAttendanceApp>
     }
     final ready = await _areInitialSetupRequirementsReady();
     if (mounted && !ready && _initialSetupCompleted) {
+      await _initialSetupStore.markIncomplete();
+      if (!mounted) return;
       setState(() => _initialSetupCompleted = false);
     }
   }
