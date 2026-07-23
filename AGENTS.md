@@ -69,20 +69,35 @@ format, and `git diff --check` validation rather than a Flutter build.
 
 ## Git workflow
 
-- Use `feat/<name>` for features, `fix/<name>` for fixes, and `docs/<name>` for
-  documentation-only branches when a new branch is useful.
+- Start each coherent change on a dedicated branch without waiting for the user
+  to request it. Use `feat/<name>` for features, `fix/<name>` for fixes, and
+  `docs/<name>` for documentation-only work. If the current branch already
+  represents the same change, continue using it instead of creating another
+  branch.
 - Follow Conventional Commits prefixes such as `feat:`, `fix:`, `docs:`,
   `refactor:`, `test:`, and `chore:`.
 - Keep logically separate documentation, implementation, and cleanup work in
   separate commits when that improves reviewability.
-- When a coherent unit of work is implemented and verified, recommend a commit
-  message to the user.
+- When a coherent unit of work is implemented and verified, commit the scoped
+  changes with a suitable Conventional Commit message without waiting for a
+  separate user request. Never include unrelated user changes in that commit.
+- A successful implementation and automated checks do not authorize merging.
+  Keep the completed branch checked out so the user can verify the behavior
+  directly.
+- Treat an explicit user statement that the verified feature is satisfactory
+  as authorization to finish the branch: commit any remaining scoped changes,
+  push the feature branch, switch to `main`, merge the feature branch, verify
+  the merged result, and push the updated `main` when a remote is configured.
+  Complete this integration before starting the user's next requested change.
+- Do not push, switch branches, merge, or delete the feature branch before that
+  explicit user acceptance. Do not infer acceptance merely from a request to
+  continue discussing or adjusting the feature.
 - When a feature branch is ready, tell the user which branch to merge and note
   any checks that should run before merging.
 - When a stable, integrated `main` commit is ready, suggest an appropriate
   version tag if it represents a meaningful release milestone.
-- Do not create commits, push branches, merge branches, create tags, or publish
-  GitHub releases unless the user explicitly requests that action.
+- Do not create tags or publish GitHub releases unless the user explicitly
+  requests that action.
 
 ## Version tags and releases
 
