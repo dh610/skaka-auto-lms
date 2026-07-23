@@ -21,6 +21,7 @@
 ## 설계·작업 계획
 
 - [알림 재예약 일관성 개선 계획](superpowers/plans/2026-07-23-notification-sync-consistency.md): 재예약 직렬화, 앱 중간 종료 복구 및 과거 알림 검증 원칙
+- [필수 설정 복구와 알림 재예약 설계](superpowers/specs/2026-07-23-required-permissions-resync-design.md): 세 필수 설정 강제, 권한 복구 후 전체 재예약 및 실패 처리 원칙
 
 역사적 기록의 미완료 항목이나 목표를 현재 기능으로 해석하지 않는다. 구현 여부를
 판단할 때는 현재 구현 상태 문서와 실제 코드를 기준으로 한다.
