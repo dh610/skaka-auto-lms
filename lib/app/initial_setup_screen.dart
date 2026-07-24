@@ -62,6 +62,8 @@ class _InitialSetupScreenState extends State<InitialSetupScreen>
       unawaited(_handleLinkSettingsReturn());
     } else if (widget.isAndroid && _pendingCallbackGuide) {
       unawaited(_continuePendingCallbackGuide());
+    } else if (!_notificationReady) {
+      unawaited(_refresh());
     }
   }
 
@@ -275,7 +277,7 @@ class _InitialSetupScreenState extends State<InitialSetupScreen>
                   _SetupItem(
                     icon: Icons.notifications_active_outlined,
                     title: '일정 알림',
-                    description: '등록한 출결 일정에 맞춰 알림을 표시합니다.',
+                    description: '등록한 시각에 소리·진동과 전체 화면 알람을 표시합니다.',
                     ready: _notificationReady,
                     onTap: _configureNotifications,
                   ),

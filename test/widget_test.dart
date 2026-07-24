@@ -2857,6 +2857,37 @@ void main() {
   });
 
   testWidgets(
+    'Android setup rechecks permissions after an external settings return',
+    (tester) async {
+      final notifications = _SetupNotificationScheduler(
+        granted: false,
+        grantOnRequest: false,
+      );
+      var finished = false;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: InitialSetupScreen(
+            notificationScheduler: notifications,
+            callbackLinkSettings: _FakeCallbackLinkSettings(enabled: true),
+            isAndroid: true,
+            onFinished: () async => finished = true,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('일정 알림'));
+      await tester.pumpAndSettle();
+
+      notifications.granted = true;
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pumpAndSettle();
+
+      expect(finished, isTrue);
+    },
+  );
+
+  testWidgets(
     'required setup waits for notification resync and retries failure',
     (tester) async {
       SharedPreferences.setMockInitialValues({
