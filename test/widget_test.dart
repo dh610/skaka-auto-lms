@@ -1770,9 +1770,21 @@ void main() {
   testWidgets('schedule editor switches between weekly and one-time modes', (
     tester,
   ) async {
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    tester.view.physicalSize = const Size(1080, 2400);
+    tester.view.devicePixelRatio = 1;
     await tester.pumpWidget(const MaterialApp(home: ScheduleEditScreen()));
 
     expect(find.text('공휴일 제외'), findsOneWidget);
+    expect(
+      tester.getTopLeft(find.text('출결 동작')).dy,
+      lessThan(tester.getTopLeft(find.text('실행 시각')).dy),
+    );
+    expect(
+      tester.getTopLeft(find.text('실행 시각')).dy,
+      lessThan(tester.getTopLeft(find.text('반복 방식')).dy),
+    );
     await tester.tap(find.text('날짜 지정'));
     await tester.pumpAndSettle();
 
@@ -2126,8 +2138,8 @@ void main() {
       await schedules.load();
       await schedules.saveSchedule(
         AttendanceSchedule(
-          id: 'queued-check-out-after-leave',
-          action: AttendanceAction.checkOut,
+          id: 'queued-leave-after-leave',
+          action: AttendanceAction.leave,
           hour: 18,
           minute: 0,
           weekdays: const {},
@@ -2168,7 +2180,7 @@ void main() {
       await tester.pump();
 
       notifications.emit(
-        '{"scheduleId":"queued-check-out-after-leave","action":"checkOut",'
+        '{"scheduleId":"queued-leave-after-leave","action":"leave",'
         '"scheduledAt":"2026-07-23T18:00:00.000"}',
       );
       links.add(Uri.parse('https://att.skala-ai.com?token=test-token'));
@@ -2184,7 +2196,7 @@ void main() {
       await tester.pump();
 
       expect(notifications.tapPayload.value, isNull);
-      expect(find.text('퇴실 처리'), findsOneWidget);
+      expect(find.text('외출 처리'), findsOneWidget);
       expect(gateway.authenticationCallCount, 1);
 
       await tester.tap(find.text('취소'));
