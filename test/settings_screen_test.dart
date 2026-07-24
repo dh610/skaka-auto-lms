@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:skala_attendance/features/attendance/data/callback_link_settings.dart';
@@ -290,6 +292,58 @@ void main() {
       expect(find.text('다크'), findsOneWidget);
     },
   );
+
+  testWidgets('profile editing row disables while its callback is pending', (
+    tester,
+  ) async {
+    final editResult = Completer<UserProfile?>();
+    var editCalls = 0;
+    await tester.pumpWidget(
+      _app(
+        profile: profile,
+        themeMode: ThemeMode.system,
+        isAndroid: false,
+        notifications: _NotificationSettings(
+          const NotificationPermissionStatus(
+            notificationsAllowed: true,
+            exactAlarmsAllowed: null,
+          ),
+        ),
+        callbacks: _CallbackSettings(enabled: true),
+        versions: _VersionProvider(
+          const AppVersion(version: '1.2.3', buildNumber: '45'),
+        ),
+        editProfile: () {
+          editCalls += 1;
+          return editResult.future;
+        },
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('사용자 정보 변경'));
+    await tester.pump();
+
+    final editTile = tester.widget<ListTile>(
+      find.ancestor(
+        of: find.text('사용자 정보 변경'),
+        matching: find.byType(ListTile),
+      ),
+    );
+    expect(editCalls, 1);
+    expect(editTile.onTap, isNull);
+
+    editResult.complete(null);
+    await tester.pumpAndSettle();
+
+    final enabledEditTile = tester.widget<ListTile>(
+      find.ancestor(
+        of: find.text('사용자 정보 변경'),
+        matching: find.byType(ListTile),
+      ),
+    );
+    expect(enabledEditTile.onTap, isNotNull);
+  });
 
   testWidgets('large text stays scrollable without overflow', (tester) async {
     tester.view.physicalSize = const Size(320, 480);

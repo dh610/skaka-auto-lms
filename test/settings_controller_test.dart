@@ -45,6 +45,69 @@ void main() {
   });
 
   test(
+    'notification allowed remains visible when exact alarm is unavailable',
+    () async {
+      final controller = SettingsController(
+        initialProfile: profile,
+        initialThemeMode: ThemeMode.system,
+        isAndroid: true,
+        notificationSettings: _NotificationSettings(
+          status: const NotificationPermissionStatus(
+            notificationsAllowed: true,
+            exactAlarmsAllowed: null,
+            exactAlarmsApplicable: true,
+          ),
+        ),
+        callbackLinkSettings: _CallbackSettings(enabled: true),
+        appVersionProvider: _VersionProvider(
+          const AppVersion(version: '1.2.3', buildNumber: '45'),
+        ),
+        editProfile: () async => null,
+        persistThemeMode: (_) async {},
+      );
+      addTearDown(controller.dispose);
+
+      await controller.refresh();
+
+      expect(controller.notificationStatus, SettingsPermissionStatus.allowed);
+      expect(controller.exactAlarmStatus, SettingsPermissionStatus.unavailable);
+    },
+  );
+
+  test(
+    'exact alarm allowed remains visible when notification is unavailable',
+    () async {
+      final controller = SettingsController(
+        initialProfile: profile,
+        initialThemeMode: ThemeMode.system,
+        isAndroid: true,
+        notificationSettings: _NotificationSettings(
+          status: const NotificationPermissionStatus(
+            notificationsAllowed: null,
+            exactAlarmsAllowed: true,
+            exactAlarmsApplicable: true,
+          ),
+        ),
+        callbackLinkSettings: _CallbackSettings(enabled: true),
+        appVersionProvider: _VersionProvider(
+          const AppVersion(version: '1.2.3', buildNumber: '45'),
+        ),
+        editProfile: () async => null,
+        persistThemeMode: (_) async {},
+      );
+      addTearDown(controller.dispose);
+
+      await controller.refresh();
+
+      expect(
+        controller.notificationStatus,
+        SettingsPermissionStatus.unavailable,
+      );
+      expect(controller.exactAlarmStatus, SettingsPermissionStatus.allowed);
+    },
+  );
+
+  test(
     'newest refresh wins when an older permission read finishes last',
     () async {
       final first = Completer<NotificationPermissionStatus>();
@@ -116,20 +179,166 @@ void main() {
 
     await expectLater(refresh, completes);
   });
+
+  test(
+    'profile editing ignores overlapping requests until completion',
+    () async {
+      const changedProfile = UserProfile(
+        name: '김스칼라',
+        region: CampusRegion.pangyo4f,
+        classNumber: 3,
+      );
+      final result = Completer<UserProfile?>();
+      var editCalls = 0;
+      final controller = SettingsController(
+        initialProfile: profile,
+        initialThemeMode: ThemeMode.system,
+        isAndroid: false,
+        notificationSettings: _NotificationSettings(),
+        callbackLinkSettings: _CallbackSettings(enabled: true),
+        appVersionProvider: _VersionProvider(
+          const AppVersion(version: '1.2.3', buildNumber: '45'),
+        ),
+        editProfile: () {
+          editCalls += 1;
+          return result.future;
+        },
+        persistThemeMode: (_) async {},
+      );
+      addTearDown(controller.dispose);
+
+      final firstEdit = controller.editProfile();
+      expect(controller.profileEditInProgress, isTrue);
+      final overlappingEdit = controller.editProfile();
+
+      await expectLater(overlappingEdit, completion(isNull));
+      expect(editCalls, 1);
+      expect(controller.profile, same(profile));
+
+      result.complete(changedProfile);
+      await expectLater(firstEdit, completion(isNull));
+
+      expect(controller.profile, same(changedProfile));
+      expect(controller.profileEditInProgress, isFalse);
+    },
+  );
+
+  test('cancelled and failed profile edits release the edit guard', () async {
+    var shouldFail = false;
+    final controller = SettingsController(
+      initialProfile: profile,
+      initialThemeMode: ThemeMode.system,
+      isAndroid: false,
+      notificationSettings: _NotificationSettings(),
+      callbackLinkSettings: _CallbackSettings(enabled: true),
+      appVersionProvider: _VersionProvider(
+        const AppVersion(version: '1.2.3', buildNumber: '45'),
+      ),
+      editProfile: () async {
+        if (shouldFail) throw StateError('edit failed');
+        return null;
+      },
+      persistThemeMode: (_) async {},
+    );
+    addTearDown(controller.dispose);
+
+    expect(await controller.editProfile(), isNull);
+    expect(controller.profile, same(profile));
+    expect(controller.profileEditInProgress, isFalse);
+
+    shouldFail = true;
+    expect(await controller.editProfile(), '사용자 정보를 변경하지 못했습니다.');
+    expect(controller.profile, same(profile));
+    expect(controller.profileEditInProgress, isFalse);
+  });
+
+  test(
+    'theme persistence is serialized while the newest choice shows now',
+    () async {
+      final darkSave = Completer<void>();
+      final lightSave = Completer<void>();
+      final saveCalls = <ThemeMode>[];
+      final controller = SettingsController(
+        initialProfile: profile,
+        initialThemeMode: ThemeMode.system,
+        isAndroid: false,
+        notificationSettings: _NotificationSettings(),
+        callbackLinkSettings: _CallbackSettings(enabled: true),
+        appVersionProvider: _VersionProvider(
+          const AppVersion(version: '1.2.3', buildNumber: '45'),
+        ),
+        editProfile: () async => null,
+        persistThemeMode: (mode) {
+          saveCalls.add(mode);
+          return switch (mode) {
+            ThemeMode.dark => darkSave.future,
+            ThemeMode.light => lightSave.future,
+            ThemeMode.system => Future<void>.value(),
+          };
+        },
+      );
+      addTearDown(controller.dispose);
+
+      final firstSelection = controller.selectTheme(ThemeMode.dark);
+      await Future<void>.delayed(Duration.zero);
+      expect(controller.themeMode, ThemeMode.dark);
+      expect(saveCalls, [ThemeMode.dark]);
+
+      final secondSelection = controller.selectTheme(ThemeMode.light);
+      await Future<void>.delayed(Duration.zero);
+      expect(controller.themeMode, ThemeMode.light);
+      expect(saveCalls, [ThemeMode.dark]);
+
+      darkSave.complete();
+      await Future<void>.delayed(Duration.zero);
+      expect(saveCalls, [ThemeMode.dark, ThemeMode.light]);
+
+      lightSave.complete();
+      await expectLater(firstSelection, completion(isNull));
+      await expectLater(secondSelection, completion(isNull));
+    },
+  );
+
+  test(
+    'failed theme persistence reports failure and does not revert UI',
+    () async {
+      final controller = SettingsController(
+        initialProfile: profile,
+        initialThemeMode: ThemeMode.system,
+        isAndroid: false,
+        notificationSettings: _NotificationSettings(),
+        callbackLinkSettings: _CallbackSettings(enabled: true),
+        appVersionProvider: _VersionProvider(
+          const AppVersion(version: '1.2.3', buildNumber: '45'),
+        ),
+        editProfile: () async => null,
+        persistThemeMode: (_) async => throw StateError('save failed'),
+      );
+      addTearDown(controller.dispose);
+
+      expect(
+        await controller.selectTheme(ThemeMode.dark),
+        '테마 설정을 저장하지 못했습니다.',
+      );
+      expect(controller.themeMode, ThemeMode.dark);
+    },
+  );
 }
 
 class _NotificationSettings implements NotificationPermissionSettings {
-  _NotificationSettings({this.statusError});
+  _NotificationSettings({this.status, this.statusError});
 
+  final NotificationPermissionStatus? status;
   final Object? statusError;
 
   @override
   Future<NotificationPermissionStatus> getPermissionStatus() async {
     if (statusError case final error?) throw error;
-    return const NotificationPermissionStatus(
-      notificationsAllowed: true,
-      exactAlarmsAllowed: true,
-    );
+    return status ??
+        const NotificationPermissionStatus(
+          notificationsAllowed: true,
+          exactAlarmsAllowed: true,
+        );
   }
 
   @override

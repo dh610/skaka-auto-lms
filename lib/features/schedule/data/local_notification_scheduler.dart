@@ -172,6 +172,8 @@ class FlutterNotificationPermissionPlatform
     this._plugin, {
     bool? isAndroid,
     bool? isIOS,
+    this.readNotificationsAllowed,
+    this.readExactAlarmsAllowed,
   }) : _isAndroid = isAndroid ?? Platform.isAndroid,
        _isIOS = isIOS ?? Platform.isIOS;
 
@@ -180,28 +182,47 @@ class FlutterNotificationPermissionPlatform
   final FlutterLocalNotificationsPlugin _plugin;
   final bool _isAndroid;
   final bool _isIOS;
+  final Future<bool?> Function()? readNotificationsAllowed;
+  final Future<bool?> Function()? readExactAlarmsAllowed;
 
   @override
   Future<NotificationPermissionStatus> getPermissionStatus() async {
     if (_isAndroid) {
-      final android = _plugin
-          .resolvePlatformSpecificImplementation<
-            AndroidFlutterLocalNotificationsPlugin
-          >();
+      final android =
+          readNotificationsAllowed == null || readExactAlarmsAllowed == null
+          ? _plugin
+                .resolvePlatformSpecificImplementation<
+                  AndroidFlutterLocalNotificationsPlugin
+                >()
+          : null;
+      final notificationsAllowed = await _readPermissionStatus(
+        readNotificationsAllowed ??
+            () async => await android?.areNotificationsEnabled() ?? false,
+      );
+      final exactAlarmsAllowed = await _readPermissionStatus(
+        readExactAlarmsAllowed ??
+            () async => await android?.canScheduleExactNotifications() ?? false,
+      );
       return NotificationPermissionStatus(
-        notificationsAllowed: await android?.areNotificationsEnabled() ?? false,
-        exactAlarmsAllowed:
-            await android?.canScheduleExactNotifications() ?? false,
+        notificationsAllowed: notificationsAllowed,
+        exactAlarmsAllowed: exactAlarmsAllowed,
+        exactAlarmsApplicable: true,
       );
     }
     if (_isIOS) {
-      final permissions = await _plugin
-          .resolvePlatformSpecificImplementation<
-            IOSFlutterLocalNotificationsPlugin
-          >()
-          ?.checkPermissions();
+      final notificationsAllowed = await _readPermissionStatus(
+        readNotificationsAllowed ??
+            () async {
+              final permissions = await _plugin
+                  .resolvePlatformSpecificImplementation<
+                    IOSFlutterLocalNotificationsPlugin
+                  >()
+                  ?.checkPermissions();
+              return permissions?.isEnabled ?? false;
+            },
+      );
       return NotificationPermissionStatus(
-        notificationsAllowed: permissions?.isEnabled ?? false,
+        notificationsAllowed: notificationsAllowed,
         exactAlarmsAllowed: null,
       );
     }
@@ -209,6 +230,16 @@ class FlutterNotificationPermissionPlatform
       notificationsAllowed: false,
       exactAlarmsAllowed: null,
     );
+  }
+
+  Future<bool?> _readPermissionStatus(
+    Future<bool?> Function() readStatus,
+  ) async {
+    try {
+      return await readStatus();
+    } catch (_) {
+      return null;
+    }
   }
 
   @override

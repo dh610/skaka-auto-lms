@@ -122,8 +122,15 @@ class _SettingsScreenState extends State<SettingsScreen>
             ListTile(
               leading: const Icon(Icons.manage_accounts_outlined),
               title: const Text('사용자 정보 변경'),
-              trailing: const Icon(Icons.chevron_right),
-              onTap: () => _runOperation(_controller.editProfile),
+              trailing: _controller.profileEditInProgress
+                  ? const SizedBox.square(
+                      dimension: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.chevron_right),
+              onTap: _controller.profileEditInProgress
+                  ? null
+                  : () => _runOperation(_controller.editProfile),
             ),
             const Divider(),
             const _SectionTitle('화면 설정'),

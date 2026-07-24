@@ -1,3 +1,4 @@
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:skala_attendance/features/schedule/application/notification_scheduler.dart';
@@ -18,6 +19,63 @@ void main() {
 
     expect(await scheduler.arePermissionsGranted(), isFalse);
   });
+
+  test('Android readiness also rejects denied notifications', () async {
+    final scheduler = LocalNotificationScheduler(
+      permissionPlatform: _FakeNotificationPermissionPlatform(
+        status: const NotificationPermissionStatus(
+          notificationsAllowed: false,
+          exactAlarmsAllowed: true,
+        ),
+      ),
+    );
+
+    expect(await scheduler.arePermissionsGranted(), isFalse);
+  });
+
+  test(
+    'Android keeps notification status when exact alarm lookup fails',
+    () async {
+      final platform = FlutterNotificationPermissionPlatform(
+        FlutterLocalNotificationsPlugin(),
+        isAndroid: true,
+        isIOS: false,
+        readNotificationsAllowed: () async => true,
+        readExactAlarmsAllowed: () async {
+          throw StateError('exact alarm unavailable');
+        },
+      );
+
+      final status = await platform.getPermissionStatus();
+
+      expect(status.notificationsAllowed, isTrue);
+      expect(status.exactAlarmsAllowed, isNull);
+      expect(status.exactAlarmsApplicable, isTrue);
+      expect(status.arePermissionsGranted, isFalse);
+    },
+  );
+
+  test(
+    'Android keeps exact alarm status when notification lookup fails',
+    () async {
+      final platform = FlutterNotificationPermissionPlatform(
+        FlutterLocalNotificationsPlugin(),
+        isAndroid: true,
+        isIOS: false,
+        readNotificationsAllowed: () async {
+          throw StateError('notifications unavailable');
+        },
+        readExactAlarmsAllowed: () async => true,
+      );
+
+      final status = await platform.getPermissionStatus();
+
+      expect(status.notificationsAllowed, isNull);
+      expect(status.exactAlarmsAllowed, isTrue);
+      expect(status.exactAlarmsApplicable, isTrue);
+      expect(status.arePermissionsGranted, isFalse);
+    },
+  );
 
   test(
     'iOS exact alarms are not applicable while notifications stay ready',

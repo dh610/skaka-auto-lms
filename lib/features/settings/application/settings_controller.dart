@@ -50,6 +50,8 @@ class SettingsController extends ChangeNotifier {
   SettingsVersionStatus _versionStatus = SettingsVersionStatus.loading;
   AppVersion? _appVersion;
   int _refreshGeneration = 0;
+  bool _profileEditInProgress = false;
+  Future<void> _themePersistenceTail = Future<void>.value();
   bool _disposed = false;
 
   UserProfile get profile => _profile;
@@ -59,6 +61,7 @@ class SettingsController extends ChangeNotifier {
   SettingsPermissionStatus get callbackLinkStatus => _callbackLinkStatus;
   SettingsVersionStatus get versionStatus => _versionStatus;
   AppVersion? get appVersion => _appVersion;
+  bool get profileEditInProgress => _profileEditInProgress;
 
   Future<void> refresh() async {
     final generation = ++_refreshGeneration;
@@ -85,9 +88,7 @@ class SettingsController extends ChangeNotifier {
       if (!_isActive(generation)) return;
       _notificationStatus = _permissionStatus(status.notificationsAllowed);
       if (_dependencies.isAndroid) {
-        _exactAlarmStatus = status.exactAlarmsAllowed == null
-            ? SettingsPermissionStatus.unavailable
-            : _permissionStatus(status.exactAlarmsAllowed!);
+        _exactAlarmStatus = _permissionStatus(status.exactAlarmsAllowed);
       }
     } catch (_) {
       if (!_isActive(generation)) return;
@@ -125,9 +126,12 @@ class SettingsController extends ChangeNotifier {
     _notifyIfActive(generation);
   }
 
-  SettingsPermissionStatus _permissionStatus(bool allowed) => allowed
-      ? SettingsPermissionStatus.allowed
-      : SettingsPermissionStatus.needed;
+  SettingsPermissionStatus _permissionStatus(bool? allowed) =>
+      switch (allowed) {
+        true => SettingsPermissionStatus.allowed,
+        false => SettingsPermissionStatus.needed,
+        null => SettingsPermissionStatus.unavailable,
+      };
 
   Future<String?> openNotificationSettings() => _openSettings(
     _dependencies.notificationSettings.openNotificationSettings,
@@ -157,26 +161,35 @@ class SettingsController extends ChangeNotifier {
   }
 
   Future<String?> editProfile() async {
+    if (_disposed || _profileEditInProgress) return null;
+    _profileEditInProgress = true;
+    notifyListeners();
     try {
       final updated = await _dependencies.editProfile();
       if (updated != null && !_disposed) {
         _profile = updated;
-        notifyListeners();
       }
       return null;
     } catch (_) {
       return '사용자 정보를 변경하지 못했습니다.';
+    } finally {
+      if (!_disposed) {
+        _profileEditInProgress = false;
+        notifyListeners();
+      }
     }
   }
 
   Future<String?> selectTheme(ThemeMode themeMode) async {
-    if (_themeMode == themeMode) return null;
-    if (!_disposed) {
-      _themeMode = themeMode;
-      notifyListeners();
-    }
+    if (_disposed || _themeMode == themeMode) return null;
+    _themeMode = themeMode;
+    notifyListeners();
+    final persistence = _themePersistenceTail.then(
+      (_) => _dependencies.persistThemeMode(themeMode),
+    );
+    _themePersistenceTail = persistence.then<void>((_) {}, onError: (_) {});
     try {
-      await _dependencies.persistThemeMode(themeMode);
+      await persistence;
       return null;
     } catch (_) {
       return '테마 설정을 저장하지 못했습니다.';
