@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:timezone/data/latest.dart' as tz_data;
 import 'package:timezone/timezone.dart' as tz;
 import 'package:url_launcher/url_launcher.dart';
@@ -11,15 +12,25 @@ import '../application/notification_scheduler.dart';
 import '../domain/attendance_schedule.dart';
 import '../domain/schedule_reminder.dart';
 
-class LocalNotificationScheduler implements NotificationScheduler {
-  LocalNotificationScheduler({FlutterLocalNotificationsPlugin? plugin})
-    : _plugin = plugin ?? FlutterLocalNotificationsPlugin();
+class LocalNotificationScheduler
+    implements NotificationScheduler, NotificationPermissionSettings {
+  LocalNotificationScheduler({
+    FlutterLocalNotificationsPlugin? plugin,
+    NotificationPermissionPlatform? permissionPlatform,
+  }) : this._(plugin ?? FlutterLocalNotificationsPlugin(), permissionPlatform);
+
+  LocalNotificationScheduler._(
+    this._plugin,
+    NotificationPermissionPlatform? permissionPlatform,
+  ) : _permissionPlatform =
+          permissionPlatform ?? FlutterNotificationPermissionPlatform(_plugin);
 
   static const _channelId = 'attendance_schedule_reminders';
   static const _channelName = '출결 일정 알림';
   static const _channelDescription = '설정한 입실·퇴실·외출·복귀 일정을 알려줍니다.';
 
   final FlutterLocalNotificationsPlugin _plugin;
+  final NotificationPermissionPlatform _permissionPlatform;
   final ValueNotifier<String?> _tapPayload = ValueNotifier(null);
   bool _initialized = false;
 
@@ -63,65 +74,32 @@ class LocalNotificationScheduler implements NotificationScheduler {
 
   @override
   Future<bool> arePermissionsGranted() async {
-    await initialize();
-    if (Platform.isAndroid) {
-      final android = _plugin
-          .resolvePlatformSpecificImplementation<
-            AndroidFlutterLocalNotificationsPlugin
-          >();
-      final notificationsAllowed =
-          await android?.areNotificationsEnabled() ?? true;
-      final exactAllowed =
-          await android?.canScheduleExactNotifications() ?? true;
-      return notificationsAllowed && exactAllowed;
-    }
-    if (Platform.isIOS) {
-      final permissions = await _plugin
-          .resolvePlatformSpecificImplementation<
-            IOSFlutterLocalNotificationsPlugin
-          >()
-          ?.checkPermissions();
-      return permissions?.isEnabled ?? false;
-    }
-    return false;
+    return (await getPermissionStatus()).arePermissionsGranted;
+  }
+
+  @override
+  Future<NotificationPermissionStatus> getPermissionStatus() async {
+    return _permissionPlatform.getPermissionStatus();
   }
 
   @override
   Future<bool> requestPermissions() async {
     await initialize();
-    if (Platform.isAndroid) {
-      final android = _plugin
-          .resolvePlatformSpecificImplementation<
-            AndroidFlutterLocalNotificationsPlugin
-          >();
-      final notificationAllowed =
-          await android?.requestNotificationsPermission() ?? true;
-      var exactAllowed = await android?.canScheduleExactNotifications() ?? true;
-      if (!exactAllowed) {
-        exactAllowed = await android?.requestExactAlarmsPermission() ?? false;
-      }
-      return notificationAllowed && exactAllowed;
-    }
-    if (Platform.isIOS) {
-      return await _plugin
-              .resolvePlatformSpecificImplementation<
-                IOSFlutterLocalNotificationsPlugin
-              >()
-              ?.requestPermissions(alert: true, badge: true, sound: true) ??
-          false;
-    }
-    return false;
+    return _permissionPlatform.requestPermissions();
   }
 
   @override
   Future<void> openPermissionSettings() async {
-    if (!Platform.isIOS) return;
-    final opened = await launchUrl(
-      Uri.parse('app-settings:'),
-      mode: LaunchMode.externalApplication,
-    );
-    if (!opened) throw StateError('iOS 알림 설정 화면을 열 수 없습니다.');
+    await openNotificationSettings();
   }
+
+  @override
+  Future<void> openNotificationSettings() =>
+      _permissionPlatform.openNotificationSettings();
+
+  @override
+  Future<void> openExactAlarmSettings() =>
+      _permissionPlatform.openExactAlarmSettings();
 
   @override
   Future<int> sync(List<AttendanceSchedule> schedules, {DateTime? now}) async {
@@ -173,5 +151,140 @@ class LocalNotificationScheduler implements NotificationScheduler {
       );
     }
     return reminders.length;
+  }
+}
+
+/// Data-layer platform adapter for notification permissions and system
+/// settings. It keeps plugin and MethodChannel calls out of presentation code.
+abstract interface class NotificationPermissionPlatform {
+  Future<NotificationPermissionStatus> getPermissionStatus();
+
+  Future<bool> requestPermissions();
+
+  Future<void> openNotificationSettings();
+
+  Future<void> openExactAlarmSettings();
+}
+
+class FlutterNotificationPermissionPlatform
+    implements NotificationPermissionPlatform {
+  FlutterNotificationPermissionPlatform(
+    this._plugin, {
+    bool? isAndroid,
+    bool? isIOS,
+    this.readNotificationsAllowed,
+    this.readExactAlarmsAllowed,
+  }) : _isAndroid = isAndroid ?? Platform.isAndroid,
+       _isIOS = isIOS ?? Platform.isIOS;
+
+  static const _settingsChannel = MethodChannel('skala_attendance/settings');
+
+  final FlutterLocalNotificationsPlugin _plugin;
+  final bool _isAndroid;
+  final bool _isIOS;
+  final Future<bool?> Function()? readNotificationsAllowed;
+  final Future<bool?> Function()? readExactAlarmsAllowed;
+
+  @override
+  Future<NotificationPermissionStatus> getPermissionStatus() async {
+    if (_isAndroid) {
+      final android =
+          readNotificationsAllowed == null || readExactAlarmsAllowed == null
+          ? _plugin
+                .resolvePlatformSpecificImplementation<
+                  AndroidFlutterLocalNotificationsPlugin
+                >()
+          : null;
+      final notificationsAllowed = await _readPermissionStatus(
+        readNotificationsAllowed ??
+            () async => await android?.areNotificationsEnabled() ?? false,
+      );
+      final exactAlarmsAllowed = await _readPermissionStatus(
+        readExactAlarmsAllowed ??
+            () async => await android?.canScheduleExactNotifications() ?? false,
+      );
+      return NotificationPermissionStatus.android(
+        notificationsAllowed: notificationsAllowed,
+        exactAlarmsAllowed: exactAlarmsAllowed,
+      );
+    }
+    if (_isIOS) {
+      final notificationsAllowed = await _readPermissionStatus(
+        readNotificationsAllowed ??
+            () async {
+              final permissions = await _plugin
+                  .resolvePlatformSpecificImplementation<
+                    IOSFlutterLocalNotificationsPlugin
+                  >()
+                  ?.checkPermissions();
+              return permissions?.isEnabled ?? false;
+            },
+      );
+      return NotificationPermissionStatus.notApplicable(
+        notificationsAllowed: notificationsAllowed,
+      );
+    }
+    return const NotificationPermissionStatus.notApplicable(
+      notificationsAllowed: false,
+    );
+  }
+
+  Future<bool?> _readPermissionStatus(
+    Future<bool?> Function() readStatus,
+  ) async {
+    try {
+      return await readStatus();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  @override
+  Future<bool> requestPermissions() async {
+    if (_isAndroid) {
+      final android = _plugin
+          .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin
+          >();
+      final notificationsAllowed =
+          await android?.requestNotificationsPermission() ?? false;
+      var exactAlarmsAllowed =
+          await android?.canScheduleExactNotifications() ?? false;
+      if (!exactAlarmsAllowed) {
+        exactAlarmsAllowed =
+            await android?.requestExactAlarmsPermission() ?? false;
+      }
+      return notificationsAllowed && exactAlarmsAllowed;
+    }
+    if (_isIOS) {
+      return await _plugin
+              .resolvePlatformSpecificImplementation<
+                IOSFlutterLocalNotificationsPlugin
+              >()
+              ?.requestPermissions(alert: true, badge: true, sound: true) ??
+          false;
+    }
+    return false;
+  }
+
+  @override
+  Future<void> openNotificationSettings() async {
+    if (_isAndroid) {
+      await _settingsChannel.invokeMethod<void>('openNotificationSettings');
+      return;
+    }
+    if (_isIOS) {
+      final opened = await launchUrl(
+        Uri.parse('app-settings:'),
+        mode: LaunchMode.externalApplication,
+      );
+      if (!opened) throw StateError('iOS 알림 설정 화면을 열 수 없습니다.');
+    }
+  }
+
+  @override
+  Future<void> openExactAlarmSettings() async {
+    if (!_isAndroid) return;
+    await _settingsChannel.invokeMethod<void>('openExactAlarmSettings');
   }
 }

@@ -122,12 +122,19 @@ void main() {
       'profile.name': '윤동현',
       'profile.region': 'P2',
       'profile.classNumber': 8,
+      'initialSetup.completed': true,
     });
     await tester.pumpWidget(
-      SkalaAttendanceApp(notificationScheduler: _NoOpNotificationScheduler()),
+      SkalaAttendanceApp(
+        notificationScheduler: _NoOpNotificationScheduler(),
+        callbackLinkSettings: _FakeCallbackLinkSettings(enabled: true),
+        isAndroid: false,
+      ),
     );
     await tester.pumpAndSettle();
 
+    await tester.tap(find.byTooltip('설정'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('사용자 정보 변경'));
     await tester.pumpAndSettle();
 
@@ -140,19 +147,26 @@ void main() {
       'profile.name': '윤동현',
       'profile.region': 'P2',
       'profile.classNumber': 8,
+      'initialSetup.completed': true,
     });
     await tester.pumpWidget(
-      SkalaAttendanceApp(notificationScheduler: _NoOpNotificationScheduler()),
+      SkalaAttendanceApp(
+        notificationScheduler: _NoOpNotificationScheduler(),
+        callbackLinkSettings: _FakeCallbackLinkSettings(enabled: true),
+        isAndroid: false,
+      ),
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byTooltip('테마 설정'));
+    await tester.tap(find.byTooltip('설정'));
     await tester.pumpAndSettle();
-    expect(find.text('시스템 설정'), findsOneWidget);
-    expect(find.text('라이트 모드'), findsOneWidget);
-    expect(find.text('다크 모드'), findsOneWidget);
+    await tester.tap(find.text('시스템 설정'));
+    await tester.pumpAndSettle();
+    expect(find.text('시스템 설정'), findsNWidgets(2));
+    expect(find.text('라이트'), findsOneWidget);
+    expect(find.text('다크'), findsOneWidget);
 
-    await tester.tap(find.text('다크 모드'));
+    await tester.tap(find.text('다크'));
     await tester.pumpAndSettle();
 
     final app = tester.widget<MaterialApp>(find.byType(MaterialApp));
@@ -527,7 +541,11 @@ void main() {
             .onPressed,
         isNotNull,
       );
-      expect(find.text('Google 인증 다시 시도'), findsOneWidget);
+      expect(
+        find.text('Google 인증이 완료되지 않았습니다. 새로고침 버튼을 눌러 다시 시도해 주세요.'),
+        findsOneWidget,
+      );
+      expect(find.text('Google 인증 다시 시도'), findsNothing);
 
       links.add(Uri.parse('https://att.skala-ai.com?token=test-token'));
       await tester.pumpAndSettle();
@@ -963,7 +981,8 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(gateway.recordCallCount, 1);
-      expect(find.text('Google 인증 다시 시도'), findsOneWidget);
+      expect(find.textContaining('인증이 만료'), findsOneWidget);
+      expect(find.text('Google 인증 다시 시도'), findsNothing);
 
       gateway.fetchError = null;
       await tester.ensureVisible(find.widgetWithText(FilledButton, '외출'));
@@ -1050,6 +1069,75 @@ void main() {
       schedules.dispose();
     },
   );
+
+  testWidgets('queued stale notification preserves uncertain-action recovery', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    const profile = UserProfile(
+      name: '윤동현',
+      region: CampusRegion.pangyo5f,
+      classNumber: 8,
+    );
+    final schedules = ScheduleController(ScheduleStore());
+    await schedules.load();
+    final notifications = _NoOpNotificationScheduler();
+    final links = StreamController<Uri>();
+    final recordGate = Completer<void>();
+    final gateway =
+        _WidgetTestAttendanceGateway(
+            snapshot: const AttendanceSnapshot(
+              networkAllowed: true,
+              checkInTime: '09:00',
+            ),
+            recordGate: recordGate,
+          )
+          ..recordError = TimeoutException('timed out')
+          ..reflectRecordedAction = false;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: AttendanceScreen(
+          profile: profile,
+          scheduleController: schedules,
+          notificationScheduler: notifications,
+          onEditProfile: () async {},
+          gateway: gateway,
+          appLinkStream: links.stream,
+          isAndroid: true,
+          callbackLinkSettings: _FakeCallbackLinkSettings(enabled: true),
+          now: () => DateTime.utc(2026, 7, 24, 3),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.widgetWithText(FilledButton, '외출'));
+    await tester.tap(find.widgetWithText(FilledButton, '외출'));
+    await tester.pump();
+    links.add(Uri.parse('https://att.skala-ai.com?token=test-token'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('외출 전송'));
+    await tester.pump();
+
+    notifications.emit(
+      '{"scheduleId":"deleted-leave","action":"leave",'
+      '"scheduledAt":"2026-07-24T12:00:00.000"}',
+    );
+    await tester.pump();
+    expect(notifications.tapPayload.value, isNotNull);
+
+    recordGate.complete();
+    await tester.pumpAndSettle();
+
+    expect(notifications.tapPayload.value, isNull);
+    expect(find.textContaining('외출 처리 결과를 확인하지 못했습니다.'), findsOneWidget);
+    expect(find.textContaining('중복 전송하지 말고'), findsOneWidget);
+    expect(find.textContaining('변경되거나 삭제된 일정의 알림'), findsNothing);
+    expect(gateway.authenticationCallCount, 1);
+
+    await links.close();
+    schedules.dispose();
+  });
 
   testWidgets('action reuses a valid token and still asks for confirmation', (
     tester,
@@ -1287,6 +1375,8 @@ void main() {
     for (var index = 1; index < positions.length; index++) {
       expect(positions[index - 1].dy, lessThan(positions[index].dy));
     }
+    await tester.scrollUntilVisible(find.text('오늘 예정된 동작'), 200);
+    expect(find.text('오늘 예정된 동작'), findsOneWidget);
     expect(tester.takeException(), isNull);
 
     await links.close();
@@ -1571,7 +1661,7 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    expect(find.text('윤동현님, 안녕하세요'), findsOneWidget);
+    expect(find.textContaining('오늘 출결 ·'), findsOneWidget);
 
     notifications.granted = false;
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
@@ -1625,7 +1715,7 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    expect(find.text('윤동현님, 안녕하세요'), findsOneWidget);
+    expect(find.textContaining('오늘 출결 ·'), findsOneWidget);
 
     notifications.granted = false;
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
@@ -1637,7 +1727,7 @@ void main() {
     await tester.tap(find.text('일정 알림'));
     await tester.pumpAndSettle();
 
-    expect(find.text('윤동현님, 안녕하세요'), findsOneWidget);
+    expect(find.textContaining('오늘 출결 ·'), findsOneWidget);
     expect(notifications.syncCount, syncCountBeforeRecovery + 1);
   });
 
@@ -1660,7 +1750,7 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    expect(find.text('윤동현님, 안녕하세요'), findsOneWidget);
+    expect(find.textContaining('오늘 출결 ·'), findsOneWidget);
 
     links.enabled = false;
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
@@ -2103,7 +2193,13 @@ void main() {
   testWidgets('notification for a deleted schedule does not authenticate', (
     tester,
   ) async {
-    SharedPreferences.setMockInitialValues({});
+    SharedPreferences.setMockInitialValues({
+      AttendanceStatusStore.storageKey: jsonEncode({
+        'date': '2026-07-24',
+        'fetchedAt': '2026-07-24T03:00:00.000Z',
+        'checkInTime': '09:00',
+      }),
+    });
     const profile = UserProfile(
       name: '윤동현',
       region: CampusRegion.pangyo5f,
@@ -2125,14 +2221,16 @@ void main() {
           appLinkStream: const Stream.empty(),
           isAndroid: true,
           callbackLinkSettings: _FakeCallbackLinkSettings(enabled: true),
+          now: () => DateTime.utc(2026, 7, 24, 3),
         ),
       ),
     );
     await tester.pumpAndSettle();
+    expect(find.text('09:00'), findsOneWidget);
 
     notifications.emit(
       '{"scheduleId":"deleted-check-in","action":"checkIn",'
-      '"scheduledAt":"2026-07-23T09:00:00.000"}',
+      '"scheduledAt":"2026-07-24T09:00:00.000"}',
     );
     await tester.pumpAndSettle();
 
@@ -2781,7 +2879,7 @@ void main() {
 
       expect(find.text('초기 설정'), findsOneWidget);
       expect(find.textContaining('알림을 예약하지 못했습니다'), findsOneWidget);
-      expect(find.text('윤동현님, 안녕하세요'), findsNothing);
+      expect(find.textContaining('오늘 출결 ·'), findsNothing);
       final preferences = await SharedPreferences.getInstance();
       expect(preferences.getBool('initialSetup.completed'), isNot(true));
 
@@ -2789,7 +2887,7 @@ void main() {
       await tester.tap(find.text('설정 완료'));
       await tester.pumpAndSettle();
 
-      expect(find.text('윤동현님, 안녕하세요'), findsOneWidget);
+      expect(find.textContaining('오늘 출결 ·'), findsOneWidget);
       expect(preferences.getBool('initialSetup.completed'), isTrue);
     },
   );
@@ -3011,12 +3109,14 @@ class _WidgetTestAttendanceGateway implements AttendanceGateway {
     this.snapshot = const AttendanceSnapshot(networkAllowed: true),
     this.snapshotAfterAction,
     this.fetchGate,
+    this.recordGate,
     this.authenticationGate,
   });
 
   AttendanceSnapshot snapshot;
   final AttendanceSnapshot? snapshotAfterAction;
   final Completer<void>? fetchGate;
+  final Completer<void>? recordGate;
   final Completer<void>? authenticationGate;
   UserProfile? authenticationProfile;
   AttendanceAction? recordedAction;
@@ -3046,6 +3146,7 @@ class _WidgetTestAttendanceGateway implements AttendanceGateway {
   Future<void> recordAction(String token, AttendanceAction action) async {
     recordCallCount++;
     recordedAction = action;
+    await recordGate?.future;
     if (reflectRecordedAction) snapshot = snapshotAfterAction ?? snapshot;
     if (recordError case final error?) throw error;
   }

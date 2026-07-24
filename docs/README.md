@@ -22,6 +22,7 @@
 
 - [출결 상태 확인 화면 UX 개선 설계](superpowers/specs/2026-07-24-attendance-status-ux-design.md): 인증·상태 카드 교체, 2×2 상태 타일 및 완료 피드백
 - [동작 중심 출결 인증과 당일 상태 캐시 설계](superpowers/specs/2026-07-24-attendance-action-auth-flow-design.md): 항상 표시되는 오늘 출결 카드, 새로고침, 동작 중심 인증 및 날짜별 상태 저장
+- [홈 화면 압축과 통합 설정 화면 설계](superpowers/specs/2026-07-24-compact-home-settings-design.md): 홈의 정보 밀도 개선, 통합 설정, 권한 상태 및 앱 버전 표시
 - [출결 일정 네이티브 알람 설계](superpowers/specs/2026-07-24-native-alarm-design.md): 공통 알람 설정, Android 네이티브 실행 및 향후 iOS AlarmKit 연결
 - [알림 재예약 일관성 개선 계획](superpowers/plans/2026-07-23-notification-sync-consistency.md): 재예약 직렬화, 앱 중간 종료 복구 및 과거 알림 검증 원칙
 - [필수 설정 복구와 알림 재예약 구현 계획](superpowers/plans/2026-07-23-required-permissions-resync.md): 실패 테스트, 초기 설정 완료 게이트, 검증 및 기기 업데이트 순서

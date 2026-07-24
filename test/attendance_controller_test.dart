@@ -750,6 +750,7 @@ void main() {
       expect(controller.snapshot?.checkOutTime, '18:00');
       expect(controller.readyAction, isNull);
       expect(controller.message, contains('현재 출결 상태에서는'));
+      expect(controller.messageKind, AttendanceMessageKind.warning);
       controller.dispose();
     },
   );
@@ -1363,7 +1364,7 @@ void main() {
     );
 
     expect(gateway.validatedToken, isNull);
-    expect(controller.message, 'Google 인증 후 출결 정보를 확인하세요.');
+    expect(controller.message, '우측 상단 새로고침 버튼을 눌러 Google 인증 후 출결 정보를 갱신하세요.');
     controller.dispose();
   });
 
@@ -1744,6 +1745,41 @@ void main() {
       expect(gateway.fetchCallCount, fetchesBeforeSecondTap + 1);
       expect(controller.readyAction, isNull);
       expect(controller.completionRevision, 0);
+      expect(controller.canRetry, isTrue);
+      expect(controller.retryLabel, '출결 상태 다시 조회');
+      controller.dispose();
+    },
+  );
+
+  test(
+    'scheduled warning cannot overwrite uncertain-action recovery',
+    () async {
+      final gateway = _FakeAttendanceGateway()
+        ..recordError = TimeoutException('timed out')
+        ..reflectRecordedAction = false;
+      final controller = AttendanceController(
+        profile,
+        gateway,
+        isAndroid: true,
+      );
+      await controller.handleCallback(
+        Uri.parse('https://att.skala-ai.com/?token=test-token'),
+      );
+      final readyRevision = await _prepareAction(
+        controller,
+        AttendanceAction.leave,
+      );
+      await controller.performAction(
+        AttendanceAction.leave,
+        readyActionRevision: readyRevision,
+      );
+      final importantMessage = controller.message;
+
+      controller.reportStaleScheduledOccurrence();
+
+      expect(controller.message, importantMessage);
+      expect(controller.messageKind, AttendanceMessageKind.error);
+      expect(controller.hasError, isTrue);
       expect(controller.canRetry, isTrue);
       expect(controller.retryLabel, '출결 상태 다시 조회');
       controller.dispose();

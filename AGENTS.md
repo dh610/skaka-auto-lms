@@ -26,6 +26,55 @@ This repository contains a Flutter-based SKALA attendance helper.
 - `android`, `ios`: platform-specific configuration
 - `docs`: current implementation, design decisions, and historical research
 
+## Development workflow
+
+### Default mode: FAST
+
+Use FAST MODE unless the user explicitly requests `FULL MODE`.
+
+For small, isolated feature implementations in FAST MODE:
+
+- Implement only the exact requested feature.
+- Prefer the smallest functional change.
+- Do not use brainstorming or writing-plans.
+- Do not create implementation plan documents or Git worktrees.
+- Do not dispatch subagents or request a separate code review.
+- Do not perform unrelated refactoring or implement adjacent follow-up work.
+- Inspect only the files necessary for the requested change, and do not
+  repeatedly inspect files that are already understood.
+
+After a FAST MODE implementation:
+
+1. Run only the most relevant targeted test, build, or lint command.
+2. Do not run the full test suite unless the change has broad impact.
+3. Report the changed files and validation result.
+4. Provide short manual verification steps.
+5. Stop and wait for the user to verify the feature.
+
+Strict test-first development is not required for UI layout changes, text
+changes, small view additions, existing API-to-UI wiring, prototypes, or work
+the user intends to verify manually. Add or update tests when business logic,
+state transitions, parsing, persistence, authentication, or regression-prone
+behavior changes.
+
+### FULL MODE
+
+Use the full workflow only when:
+
+- the user explicitly requests `FULL MODE`;
+- architecture must change;
+- requirements are substantially ambiguous;
+- authentication or security behavior changes;
+- database schemas or migrations change; or
+- a difficult or non-reproducible bug is being investigated.
+
+FULL MODE may use brainstorming, planning, test-first development, systematic
+debugging, subagents, separate review, and full verification as appropriate.
+
+If the task appears to require FULL MODE and the user has not explicitly
+requested it, briefly explain why and ask whether to proceed in FULL MODE.
+Do not start the FULL MODE workflow until the user approves it.
+
 ## Engineering conventions
 
 - Preserve the feature-based `application`, `data`, `domain`, and
@@ -47,7 +96,9 @@ This repository contains a Flutter-based SKALA attendance helper.
 
 ## Validation
 
-Format affected Dart files and run the checks relevant to the change. For a
+Format affected Dart files and run checks in proportion to the selected
+workflow mode. In FAST MODE, prefer the narrowest relevant command and avoid
+the full suite unless the change has broad impact. In FULL MODE or for a broad
 normal code change, use:
 
 ```sh
