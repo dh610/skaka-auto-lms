@@ -2,7 +2,7 @@
 
 문서는 현재 상태와 역사적 조사 기록을 구분한다.
 
-현재 기준 문서는 2026-07-23 구현과 Android 실기기 검증 결과를 반영한다. iOS는 기존
+현재 기준 문서는 2026-07-24 구현과 Android 실기기 검증 결과를 반영한다. iOS는 기존
 시뮬레이터 검증 결과와 코드를 보존하지만 개발·실기기 검증·배포를 중단한 상태다.
 
 ## 현재 기준 문서
@@ -20,6 +20,8 @@
 
 ## 설계·작업 계획
 
+- [출결 상태 확인 화면 UX 개선 설계](superpowers/specs/2026-07-24-attendance-status-ux-design.md): 인증·상태 카드 교체, 2×2 상태 타일 및 완료 피드백
+- [출결 일정 네이티브 알람 설계](superpowers/specs/2026-07-24-native-alarm-design.md): 공통 알람 설정, Android 네이티브 실행 및 향후 iOS AlarmKit 연결
 - [알림 재예약 일관성 개선 계획](superpowers/plans/2026-07-23-notification-sync-consistency.md): 재예약 직렬화, 앱 중간 종료 복구 및 과거 알림 검증 원칙
 - [필수 설정 복구와 알림 재예약 구현 계획](superpowers/plans/2026-07-23-required-permissions-resync.md): 실패 테스트, 초기 설정 완료 게이트, 검증 및 기기 업데이트 순서
 - [필수 설정 복구와 알림 재예약 설계](superpowers/specs/2026-07-23-required-permissions-resync-design.md): 세 필수 설정 강제, 권한 복구 후 전체 재예약 및 실패 처리 원칙

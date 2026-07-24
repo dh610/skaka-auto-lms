@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:skala_attendance/features/attendance/data/attendance_gateway.dart';
 import 'package:skala_attendance/features/attendance/data/skala_attendance_api.dart';
 import 'package:skala_attendance/features/profile/domain/user_profile.dart';
 import 'package:skala_attendance/features/schedule/domain/attendance_schedule.dart';
@@ -60,6 +61,34 @@ void main() {
     expect(captured.headers['Authorization'], 'Bearer attendance-token');
     expect(jsonDecode(captured.body), {'eventType': 'CHECK_OUT'});
     api.close();
+  });
+
+  test('record API identifies a definitive server rejection', () async {
+    final api = SkalaAttendanceApi(
+      client: MockClient(
+        (_) async => http.Response(jsonEncode({'error': 'not allowed'}), 403),
+      ),
+    );
+
+    await expectLater(
+      api.recordAction('attendance-token', AttendanceAction.leave),
+      throwsA(isA<AttendanceActionRejectedException>()),
+    );
+    api.close();
+  });
+
+  test('record API keeps timeout and server failures ambiguous', () async {
+    for (final statusCode in [408, 500]) {
+      final api = SkalaAttendanceApi(
+        client: MockClient((_) async => http.Response('{}', statusCode)),
+      );
+
+      await expectLater(
+        api.recordAction('attendance-token', AttendanceAction.leave),
+        throwsA(isA<StateError>()),
+      );
+      api.close();
+    }
   });
 
   test(
