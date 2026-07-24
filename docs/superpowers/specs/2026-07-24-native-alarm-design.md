@@ -250,3 +250,292 @@ iOS는 Android foreground service나 전체 화면 권한을 재사용하지 않
 
 실기기에서는 가까운 테스트 전용 일정을 사용하되 Google 인증 이후 실제 출결 동작은
 보내지 않는다.
+
+## 구현 계획 및 사용자 검증 게이트
+
+이 절은 별도 계획 문서를 만들지 않고 본 설계를 실제 구현 순서의 단일 기준으로
+사용하기 위한 체크리스트다. 첫 번째 완료 지점은 Android release APK를 실기기에
+설치해 사용자가 직접 알람을 확인하는 시점이다. 전체 회귀 검증과 별도 코드 점검은
+사용자가 기능을 확인한 뒤 진행한다.
+
+### 전역 제약
+
+- 이번 브랜치에서는 Android만 네이티브 알람으로 전환한다.
+- iOS는 기존 `flutter_local_notifications` 예약을 유지한다.
+- 최대 60개 선등록, 공휴일 제외, 일정 저장 후 직렬 재동기화 원칙을 유지한다.
+- 네이티브 영역에는 이름, Google 인증 정보, 토큰 및 출결 상태를 저장하지 않는다.
+- 알람 동작이나 테스트가 실제 출결 API를 자동 전송하지 않는다.
+- Android 14 이상 전체 화면 알림 권한은 일반 알림·정확 알람·앱 복귀 링크와 함께
+  필수 설정으로 취급한다.
+
+### Task 1: 공통 알람 설정과 저장 호환성
+
+**파일**
+
+- 생성: `lib/features/schedule/domain/alarm_settings.dart`
+- 수정: `lib/features/schedule/domain/attendance_schedule.dart`
+- 수정: `lib/features/schedule/data/schedule_store.dart`
+- 수정: `lib/features/schedule/application/schedule_controller.dart`
+- 테스트: `test/schedule_controller_test.dart`
+- 테스트: `test/schedule_reminder_test.dart`
+
+**인터페이스**
+
+```dart
+enum AlarmVolumeButtonAction { snooze, dismiss, none }
+
+class AlarmSound {
+  const AlarmSound({this.uri, required this.label});
+  const AlarmSound.systemDefault();
+  final String? uri;
+  final String label;
+  Map<String, dynamic> toJson();
+  factory AlarmSound.fromJson(Map<String, dynamic>? json);
+}
+
+class AlarmSettings {
+  const AlarmSettings({
+    this.sound = const AlarmSound.systemDefault(),
+    this.volumePercent = 100,
+    this.vibrationEnabled = true,
+    this.gradualVolumeEnabled = false,
+    this.snoozeMinutes = 5,
+    this.maximumSnoozeCount = 3,
+    this.volumeButtonAction = AlarmVolumeButtonAction.snooze,
+  });
+  final AlarmSound sound;
+  final int volumePercent;
+  final bool vibrationEnabled;
+  final bool gradualVolumeEnabled;
+  final int snoozeMinutes;
+  final int? maximumSnoozeCount;
+  final AlarmVolumeButtonAction volumeButtonAction;
+  Map<String, dynamic> toJson();
+  factory AlarmSettings.fromJson(Map<String, dynamic>? json);
+}
+```
+
+`AttendanceSchedule`에 `alarmSettings`를 추가한다. 기존 JSON에 필드가 없거나 손상된
+경우 `const AlarmSettings()`를 사용한다. `copyWith`와 JSON 왕복에 모든 알람 설정을
+포함한다.
+
+`ScheduleStore`는 마지막으로 저장한 알람 설정을
+`attendance.lastAlarmSettings`에 별도로 저장하고 읽는다. `ScheduleController`는
+일정을 저장할 때 이 기본값도 갱신하고, 새 일정 편집 화면에
+`defaultAlarmSettings`로 제공한다.
+
+**검증**
+
+- 기존 일정 JSON이 기본 알람 설정으로 복원된다.
+- 사용자 설정 전체가 일정 JSON과 마지막 기본값에 왕복 저장된다.
+- 음량은 0~100, 다시 알림 간격은 1·3·5·10·15분, 최대 횟수는 0~10 또는 `null`만
+  허용한다.
+
+### Task 2: 일정 편집 화면과 시스템 알람음 선택
+
+**파일**
+
+- 생성: `lib/features/schedule/application/alarm_sound_picker.dart`
+- 생성: `lib/features/schedule/data/platform_alarm_sound_picker.dart`
+- 수정: `lib/features/schedule/application/schedule_controller.dart`
+- 수정: `lib/features/schedule/presentation/schedule_list_screen.dart`
+- 수정: `lib/features/schedule/presentation/schedule_edit_screen.dart`
+- 수정: `lib/app/app.dart`
+- 수정: `android/app/src/main/kotlin/com/ddhhyy/skala_attendance/MainActivity.kt`
+- 테스트: `test/widget_test.dart`
+
+**인터페이스**
+
+```dart
+abstract interface class AlarmSoundPicker {
+  Future<AlarmSound?> pick(AlarmSound current);
+}
+
+class PlatformAlarmSoundPicker implements AlarmSoundPicker {
+  static const channel = MethodChannel('skala_attendance/alarm');
+}
+```
+
+Android 채널의 `pickAlarmSound`는 `RingtoneManager.ACTION_RINGTONE_PICKER`를 열고
+선택 결과의 URI와 표시 이름을 반환한다. 취소는 `null`, 더 이상 접근할 수 없는 URI는
+시스템 기본 알람음으로 정규화한다.
+
+일정 편집 화면의 `알람 설정` 구역은 다음을 제공한다.
+
+- 알람음 행: 시스템 선택기
+- 음량: 0~100% Slider와 현재 백분율
+- 진동·점점 크게: Switch
+- 다시 알림: 1·3·5·10·15분과 최대 0~10회/제한 없음 선택창
+- 볼륨 버튼: 다시 알림·끄기·아무 동작 안 함 선택창
+
+기존 일정은 자체 설정으로, 새 일정은 `defaultAlarmSettings`로 시작한다. 저장 전
+변경은 다른 일정이나 기본값에 영향을 주지 않는다.
+
+### Task 3: Flutter 발생 건과 Android 예약 브리지
+
+**파일**
+
+- 생성: `lib/features/schedule/domain/alarm_occurrence.dart`
+- 생성: `lib/features/schedule/data/android_alarm_platform.dart`
+- 수정: `lib/features/schedule/data/local_notification_scheduler.dart`
+- 수정: `lib/features/schedule/domain/schedule_reminder.dart`
+- 테스트: `test/schedule_reminder_test.dart`
+- 테스트: `test/settings_data_interfaces_test.dart`
+
+**인터페이스**
+
+```dart
+class AlarmOccurrence {
+  const AlarmOccurrence({
+    required this.scheduleId,
+    required this.action,
+    required this.scheduledAt,
+    required this.settings,
+    this.snoozeCount = 0,
+  });
+  String get occurrenceKey;
+  Map<String, dynamic> toPlatformMap();
+}
+
+abstract interface class AndroidAlarmPlatform {
+  Future<void> initialize(ValueChanged<String> onActionPayload);
+  Future<void> sync(List<AlarmOccurrence> occurrences);
+  Future<String?> takeLaunchPayload();
+}
+```
+
+`LocalNotificationScheduler`는 Android에서 `ScheduleReminderPlanner` 결과를
+`AlarmOccurrence`로 변환해 `skala_attendance/alarm` 채널의 `sync`로 전달한다.
+iOS에서는 기존 `zonedSchedule`을 유지한다. Android 알람 화면의
+`Google 인증 시작` payload는 기존 `tapPayload`에 전달해 현재 Flutter 검증·인증
+경로를 그대로 사용한다.
+
+### Task 4: Android 예약 저장·예약·복구
+
+**파일**
+
+- 생성:
+  `android/app/src/main/kotlin/com/ddhhyy/skala_attendance/alarm/AlarmContract.kt`
+- 생성:
+  `android/app/src/main/kotlin/com/ddhhyy/skala_attendance/alarm/AlarmOccurrence.kt`
+- 생성:
+  `android/app/src/main/kotlin/com/ddhhyy/skala_attendance/alarm/AlarmStore.kt`
+- 생성:
+  `android/app/src/main/kotlin/com/ddhhyy/skala_attendance/alarm/AlarmScheduler.kt`
+- 생성:
+  `android/app/src/main/kotlin/com/ddhhyy/skala_attendance/alarm/AlarmReceiver.kt`
+- 생성:
+  `android/app/src/main/kotlin/com/ddhhyy/skala_attendance/alarm/AlarmRestoreReceiver.kt`
+- 수정: `android/app/src/main/kotlin/com/ddhhyy/skala_attendance/MainActivity.kt`
+- 수정: `android/app/src/main/AndroidManifest.xml`
+- 수정: `android/app/build.gradle.kts`
+- 테스트:
+  `android/app/src/test/kotlin/com/ddhhyy/skala_attendance/alarm/AlarmOccurrenceTest.kt`
+- 테스트:
+  `android/app/src/test/kotlin/com/ddhhyy/skala_attendance/alarm/AlarmPolicyTest.kt`
+
+`sync`는 기존 native mirror와 PendingIntent를 취소한 뒤 새 목록을 원자적으로 저장하고
+각 발생 건을 `AlarmManager.setAlarmClock()`으로 예약한다. PendingIntent는
+`occurrenceKey` 기반의 안정적인 request code와 data URI를 사용한다.
+
+`AlarmReceiver`는 실행 시 mirror에 동일한 발생 건과 시각이 남아 있는지 확인한 뒤에만
+울림 서비스를 시작한다. `AlarmRestoreReceiver`는 `BOOT_COMPLETED`,
+`MY_PACKAGE_REPLACED`, 빠른 부팅 이벤트에서 미래 발생 건과 남은 다시 알림을
+재예약한다.
+
+### Task 5: 울림 서비스·알람 화면·동작 버튼
+
+**파일**
+
+- 생성:
+  `android/app/src/main/kotlin/com/ddhhyy/skala_attendance/alarm/AlarmRingingService.kt`
+- 생성:
+  `android/app/src/main/kotlin/com/ddhhyy/skala_attendance/alarm/AlarmActivity.kt`
+- 생성:
+  `android/app/src/main/kotlin/com/ddhhyy/skala_attendance/alarm/AlarmActionReceiver.kt`
+- 생성: `android/app/src/main/res/layout/activity_alarm.xml`
+- 생성: `android/app/src/main/res/drawable/alarm_background.xml`
+- 수정: `android/app/src/main/AndroidManifest.xml`
+- 수정: `android/app/src/main/res/values/styles.xml`
+- 테스트:
+  `android/app/src/test/kotlin/com/ddhhyy/skala_attendance/alarm/AlarmPolicyTest.kt`
+
+서비스는 alarm audio attributes의 반복 `MediaPlayer`, 반복 진동, ongoing 알림을
+소유한다. 알림 채널은 무음으로 두어 서비스 재생과 중복되지 않게 한다. 점점 크게는
+30초 동안 설정 비율까지 선형으로 증가한다.
+
+알람 화면과 heads-up 알림은 `끄기`, `다시 알림`, `Google 인증 시작`을 분리한다.
+
+- 끄기: 울림만 종료
+- 다시 알림: 설정 간격 뒤 일회성 발생 건 예약, 횟수 증가
+- 인증 시작: 울림 종료 후 MainActivity에 기존 일정 payload 전달
+
+최대 다시 알림 횟수에 도달하면 다시 알림 버튼을 숨긴다. 볼륨 버튼은
+`AlarmVolumeButtonAction`에 따라 같은 끄기/다시 알림 명령을 호출하며 전원 버튼은
+처리하지 않는다.
+
+### Task 6: 전체 화면 권한과 필수 설정 복구
+
+**파일**
+
+- 수정: `lib/features/schedule/application/notification_scheduler.dart`
+- 수정: `lib/features/schedule/data/local_notification_scheduler.dart`
+- 수정: `lib/features/settings/application/settings_controller.dart`
+- 수정: `lib/features/settings/presentation/settings_screen.dart`
+- 수정: `lib/app/initial_setup_screen.dart`
+- 수정: `lib/app/app.dart`
+- 수정: `android/app/src/main/kotlin/com/ddhhyy/skala_attendance/MainActivity.kt`
+- 수정: `android/app/src/main/AndroidManifest.xml`
+- 테스트: `test/settings_data_interfaces_test.dart`
+- 테스트: `test/settings_controller_test.dart`
+- 테스트: `test/settings_screen_test.dart`
+- 테스트: `test/widget_test.dart`
+
+`NotificationPermissionStatus.android`에 nullable
+`fullScreenAlarmsAllowed`를 추가하고 Android 준비 상태는 세 권한이 모두 `true`일
+때만 통과한다. `NotificationPermissionSettings`에는
+`openFullScreenAlarmSettings()`를 추가한다.
+
+Android 14 이상 상태는 `NotificationManager.canUseFullScreenIntent()`로 확인하고
+`ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT`로 이동한다. 그 미만은 적용 대상이 아니므로
+허용으로 처리한다. 통합 설정 화면에는 `전체 화면 알람 권한` 행을 추가한다.
+
+초기 설정에서 일반 알림·정확 알람 요청 후 전체 화면 권한이 없으면 해당 설정 화면을
+열고, 앱 복귀 시 전체 상태를 다시 확인한다. 권한이 해제되면 기존 완료 상태를
+무효화하고, 복구 후 최신 일정 전체 재예약이 성공해야 홈으로 돌아간다.
+
+### Task 7: 1차 자동 검증·release APK·사용자 ADB 검증
+
+**파일**
+
+- 수정: `README.md`
+- 수정: `docs/current-implementation.md`
+- 수정: `docs/android-apk-distribution.md`
+- 수정: `pubspec.yaml`
+
+구현 범위의 Dart 테스트, Android unit test, `flutter analyze`,
+`flutter build apk --release --split-per-abi`를 실행한다. build number를 증가시키고
+기존 release 인증서 SHA-256과 동일한지 확인한 뒤 연결된 arm64 기기에 `adb install -r`
+로 업데이트한다.
+
+사용자는 실기기에서 가까운 테스트 일정을 만들어 다음을 먼저 확인한다.
+
+1. 화면 켜짐·꺼짐·잠금 상태에서 표시
+2. 소리·음량·진동·점점 크게
+3. 끄기·다시 알림·볼륨 버튼
+4. 다른 앱 사용 중 heads-up 표시
+5. Google 인증 시작 시 알람 종료와 기존 인증 화면 진입
+6. 앱 강제 종료 뒤 알람 실행
+
+이 지점에서는 실제 출결 동작을 보내지 않는다. 사용자가 기능을 확인하기 전에는
+feature 브랜치를 push하거나 `main`에 병합하지 않는다.
+
+### Task 8: 사용자 확인 후 사후 FULL 점검
+
+사용자가 1차 기능을 확인한 뒤에만 진행한다.
+
+- 전체 Flutter 테스트와 Android unit test 재실행
+- 예약/울림/권한/복구 경계 코드 별도 검토
+- 권한 해제·복구, 재부팅, 앱 업데이트, 삭제·비활성화 일정 회귀 확인
+- 발견된 문제 수정 후 release APK 재설치
+- 사용자 최종 승인 뒤 feature 브랜치 push, `main` 병합, 병합 결과 검증 및 push
