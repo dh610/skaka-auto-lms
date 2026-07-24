@@ -75,6 +75,16 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
     addTearDown(tester.view.resetPhysicalSize);
     final schedules = await _schedules();
+    await schedules.saveSchedule(
+      const AttendanceSchedule(
+        id: 'today-alarm',
+        action: AttendanceAction.checkIn,
+        hour: 8,
+        minute: 50,
+        weekdays: {1, 2, 3, 4, 5},
+        enabled: true,
+      ),
+    );
 
     await tester.pumpWidget(
       MaterialApp(
@@ -94,8 +104,12 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    final scheduleTitle = find.text('오늘 예정된 동작');
+    final scheduleTitle = find.text('오늘의 알람');
     expect(scheduleTitle, findsOneWidget);
+    expect(find.text('오전 8:50 · 입실'), findsOneWidget);
+    expect(find.text('예정'), findsNothing);
+    expect(find.text('시간 지남'), findsNothing);
+    expect(find.text('건너뜀'), findsNothing);
     expect(tester.getTopLeft(scheduleTitle).dy, lessThan(844));
     expect(
       tester.getTopLeft(find.text('오늘 출결 · 7월 24일(금)')).dy,
