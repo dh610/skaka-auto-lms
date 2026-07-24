@@ -18,6 +18,7 @@ import '../data/skala_attendance_api.dart';
 import '../domain/action_confirmation_policy.dart';
 import '../domain/attendance_snapshot.dart';
 import '../domain/today_schedule_status.dart';
+import 'attendance_display_formatter.dart';
 
 class AttendanceScreen extends StatefulWidget {
   const AttendanceScreen({
@@ -32,6 +33,7 @@ class AttendanceScreen extends StatefulWidget {
     this.appLinkStream,
     this.isAndroid,
     this.callbackLinkSettings,
+    this.now,
   });
 
   final UserProfile profile;
@@ -44,6 +46,7 @@ class AttendanceScreen extends StatefulWidget {
   final Stream<Uri>? appLinkStream;
   final bool? isAndroid;
   final CallbackLinkSettings? callbackLinkSettings;
+  final DateTime Function()? now;
 
   @override
   State<AttendanceScreen> createState() => _AttendanceScreenState();
@@ -57,6 +60,12 @@ class _AttendanceScreenState extends State<AttendanceScreen>
   bool _handlingScheduledAction = false;
   late final CallbackLinkSettings _callbackLinkSettings;
   _PendingAuthentication? _pendingAuthentication;
+  int _handledStatusRevision = 0;
+  int _handledCompletionRevision = 0;
+  bool _showRecentlyUpdated = false;
+  AttendanceAction? _highlightedAction;
+  Timer? _recentlyUpdatedTimer;
+  Timer? _actionHighlightTimer;
 
   @override
   void initState() {
@@ -216,6 +225,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
   }
 
   void _handleControllerChange() {
+    _consumeControllerEvents();
     final action = _pendingScheduledAction;
     final snapshot = _controller.snapshot;
     if (action == null ||
@@ -244,6 +254,48 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     WidgetsBinding.instance.scheduleFrame();
   }
 
+  void _consumeControllerEvents() {
+    if (_controller.snapshot == null &&
+        _controller.lastCompletedAction == null) {
+      _showRecentlyUpdated = false;
+      _highlightedAction = null;
+      _recentlyUpdatedTimer?.cancel();
+      _actionHighlightTimer?.cancel();
+    }
+
+    if (_controller.statusRevision > _handledStatusRevision) {
+      _handledStatusRevision = _controller.statusRevision;
+      _showRecentlyUpdated = true;
+      _recentlyUpdatedTimer?.cancel();
+      final revision = _handledStatusRevision;
+      _recentlyUpdatedTimer = Timer(const Duration(seconds: 5), () {
+        if (!mounted || revision != _handledStatusRevision) return;
+        setState(() => _showRecentlyUpdated = false);
+      });
+    }
+
+    if (_controller.completionRevision <= _handledCompletionRevision) return;
+    _handledCompletionRevision = _controller.completionRevision;
+    final completedAction = _controller.lastCompletedAction;
+    if (completedAction == null) return;
+
+    _highlightedAction = completedAction;
+    _actionHighlightTimer?.cancel();
+    final revision = _handledCompletionRevision;
+    _actionHighlightTimer = Timer(const Duration(seconds: 5), () {
+      if (!mounted || revision != _handledCompletionRevision) return;
+      setState(() => _highlightedAction = null);
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || revision != _handledCompletionRevision) return;
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(content: Text(_completionMessage(completedAction))),
+        );
+    });
+  }
+
   @override
   void didUpdateWidget(covariant AttendanceScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
@@ -261,6 +313,8 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     );
     widget.scheduleController.removeListener(_handleNotificationTap);
     _controller.removeListener(_handleControllerChange);
+    _recentlyUpdatedTimer?.cancel();
+    _actionHighlightTimer?.cancel();
     _controller.dispose();
     super.dispose();
   }
@@ -363,29 +417,35 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                 onEditProfile: widget.onEditProfile,
               ),
               const SizedBox(height: 16),
+              if (_controller.snapshot case final snapshot?)
+                _StatusCard(
+                  snapshot: snapshot,
+                  busy: _controller.busy,
+                  date: (widget.now ?? DateTime.now)().toUtc(),
+                  showRecentlyUpdated: _showRecentlyUpdated,
+                  highlightedAction: _highlightedAction,
+                  message: _controller.message,
+                  hasError: _controller.hasError,
+                  canRetry: _controller.canRetry,
+                  retryLabel: _controller.retryLabel,
+                  onAction: _confirmAction,
+                  onRetry: _retry,
+                )
+              else
+                _AuthenticationCard(
+                  busy: _controller.busy,
+                  message: _controller.message,
+                  hasError: _controller.hasError,
+                  canRetry: _controller.canRetry,
+                  retryLabel: _controller.retryLabel,
+                  onAuthenticate: _requestAuthentication,
+                  onRetry: _retry,
+                ),
+              const SizedBox(height: 16),
               _TodaySchedulesCard(
                 controller: widget.scheduleController,
                 attendanceController: _controller,
               ),
-              const SizedBox(height: 16),
-              _AuthenticationCard(
-                busy: _controller.busy,
-                message: _controller.message,
-                authenticated: _controller.authenticated,
-                hasError: _controller.hasError,
-                canRetry: _controller.canRetry,
-                retryLabel: _controller.retryLabel,
-                onAuthenticate: _requestAuthentication,
-                onRetry: _retry,
-              ),
-              if (_controller.snapshot case final snapshot?) ...[
-                const SizedBox(height: 16),
-                _StatusCard(
-                  snapshot: snapshot,
-                  busy: _controller.busy,
-                  onAction: _confirmAction,
-                ),
-              ],
               const SizedBox(height: 24),
               Text(
                 'Google 인증은 브라우저에서 직접 진행하며 인증 정보는 기기에 저장하지 않습니다.',
@@ -404,11 +464,19 @@ class _AttendanceScreenState extends State<AttendanceScreen>
 
 typedef _PendingAuthentication = ({String? scheduleId, DateTime? scheduledAt});
 
+String _completionMessage(AttendanceAction action) {
+  return switch (action) {
+    AttendanceAction.checkIn => '입실이 완료되었습니다.',
+    AttendanceAction.checkOut => '퇴실이 완료되었습니다.',
+    AttendanceAction.leave => '외출이 완료되었습니다.',
+    AttendanceAction.returnFromLeave => '복귀가 완료되었습니다.',
+  };
+}
+
 class _AuthenticationCard extends StatelessWidget {
   const _AuthenticationCard({
     required this.busy,
     required this.message,
-    required this.authenticated,
     required this.hasError,
     required this.canRetry,
     required this.retryLabel,
@@ -418,7 +486,6 @@ class _AuthenticationCard extends StatelessWidget {
 
   final bool busy;
   final String message;
-  final bool authenticated;
   final bool hasError;
   final bool canRetry;
   final String retryLabel;
@@ -431,8 +498,6 @@ class _AuthenticationCard extends StatelessWidget {
     return Card(
       color: hasError
           ? colors.errorContainer.withValues(alpha: 0.55)
-          : authenticated
-          ? colors.primaryContainer.withValues(alpha: 0.55)
           : colors.surfaceContainerLow,
       child: Padding(
         padding: const EdgeInsets.all(18),
@@ -444,19 +509,13 @@ class _AuthenticationCard extends StatelessWidget {
                 CircleAvatar(
                   backgroundColor: hasError
                       ? colors.error
-                      : authenticated
-                      ? colors.primary
                       : colors.secondaryContainer,
                   foregroundColor: hasError
                       ? colors.onError
-                      : authenticated
-                      ? colors.onPrimary
                       : colors.onSecondaryContainer,
                   child: Icon(
                     hasError
                         ? Icons.error_outline_rounded
-                        : authenticated
-                        ? Icons.verified_user_outlined
                         : Icons.lock_person_outlined,
                   ),
                 ),
@@ -466,11 +525,7 @@ class _AuthenticationCard extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        hasError
-                            ? '다시 확인이 필요합니다'
-                            : authenticated
-                            ? '오늘 인증 완료'
-                            : 'Google 인증 필요',
+                        hasError ? '출결 정보를 확인하지 못했습니다' : '출결 정보 확인하기',
                         style: Theme.of(context).textTheme.titleMedium
                             ?.copyWith(fontWeight: FontWeight.w700),
                       ),
@@ -501,13 +556,7 @@ class _AuthenticationCard extends StatelessWidget {
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
                     : const Icon(Icons.open_in_browser_outlined),
-                label: Text(
-                  canRetry
-                      ? retryLabel
-                      : authenticated
-                      ? '다시 인증하기'
-                      : 'Google 인증 시작',
-                ),
+                label: Text(canRetry ? retryLabel : 'Google 인증 시작'),
               ),
             ),
           ],
@@ -887,31 +936,109 @@ class _StatusCard extends StatelessWidget {
   const _StatusCard({
     required this.snapshot,
     required this.busy,
+    required this.date,
+    required this.showRecentlyUpdated,
+    required this.highlightedAction,
+    required this.message,
+    required this.hasError,
+    required this.canRetry,
+    required this.retryLabel,
     required this.onAction,
+    required this.onRetry,
   });
 
   final AttendanceSnapshot snapshot;
   final bool busy;
+  final DateTime date;
+  final bool showRecentlyUpdated;
+  final AttendanceAction? highlightedAction;
+  final String message;
+  final bool hasError;
+  final bool canRetry;
+  final String retryLabel;
   final Future<void> Function(AttendanceAction action) onAction;
+  final Future<void> Function() onRetry;
 
   @override
   Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(18),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('오늘 출결', style: Theme.of(context).textTheme.titleLarge),
+            Text(
+              '오늘 출결 · ${formatAttendanceDate(date)}',
+              style: Theme.of(
+                context,
+              ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
+            ),
+            if (showRecentlyUpdated) ...[
+              const SizedBox(height: 4),
+              Text(
+                '방금 업데이트됨',
+                style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                  color: colors.primary,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
             const SizedBox(height: 12),
-            Text('네트워크 허용: ${snapshot.networkAllowed ? '예' : '아니오'}'),
-            Text('입실: ${snapshot.checkInTime ?? '없음'}'),
-            Text('퇴실: ${snapshot.checkOutTime ?? '없음'}'),
-            Text('외출: ${snapshot.earlyLeaveTime ?? '없음'}'),
-            Text('복귀: ${snapshot.returnTime ?? '없음'}'),
+            _AttendanceStatusRow(
+              action: AttendanceAction.checkIn,
+              value: snapshot.checkInTime,
+              highlighted: highlightedAction == AttendanceAction.checkIn,
+            ),
+            _AttendanceStatusRow(
+              action: AttendanceAction.checkOut,
+              value: snapshot.checkOutTime,
+              highlighted: highlightedAction == AttendanceAction.checkOut,
+            ),
+            _AttendanceStatusRow(
+              action: AttendanceAction.leave,
+              value: snapshot.earlyLeaveTime,
+              highlighted: highlightedAction == AttendanceAction.leave,
+            ),
+            _AttendanceStatusRow(
+              action: AttendanceAction.returnFromLeave,
+              value: snapshot.returnTime,
+              highlighted:
+                  highlightedAction == AttendanceAction.returnFromLeave,
+            ),
             const SizedBox(height: 16),
-            if (!snapshot.networkAllowed)
-              const Text('현재 네트워크에서는 출결 동작을 전송할 수 없습니다.')
+            if (hasError) ...[
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: colors.errorContainer.withValues(alpha: 0.65),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  message,
+                  style: TextStyle(color: colors.onErrorContainer),
+                ),
+              ),
+              if (canRetry) ...[
+                const SizedBox(height: 10),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.tonalIcon(
+                    onPressed: busy ? null : onRetry,
+                    icon: const Icon(Icons.refresh_rounded),
+                    label: Text(retryLabel),
+                  ),
+                ),
+              ],
+            ] else if (!snapshot.networkAllowed)
+              Text(
+                '현재 네트워크에서는 출결 동작을 전송할 수 없습니다.',
+                style: TextStyle(
+                  color: colors.error,
+                  fontWeight: FontWeight.w600,
+                ),
+              )
             else if (snapshot.availableActions.isEmpty)
               const Text('현재 가능한 출결 동작이 없습니다.')
             else ...[
@@ -930,6 +1057,67 @@ class _StatusCard extends StatelessWidget {
             ],
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _AttendanceStatusRow extends StatelessWidget {
+  const _AttendanceStatusRow({
+    required this.action,
+    required this.value,
+    required this.highlighted,
+  });
+
+  final AttendanceAction action;
+  final String? value;
+  final bool highlighted;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return AnimatedContainer(
+      key: ValueKey('attendance-status-${action.name}'),
+      duration: const Duration(milliseconds: 250),
+      margin: const EdgeInsets.symmetric(vertical: 2),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+      decoration: BoxDecoration(
+        color: highlighted
+            ? colors.primaryContainer.withValues(alpha: 0.8)
+            : Colors.transparent,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 44,
+            child: Text(
+              action.label,
+              style: Theme.of(
+                context,
+              ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w700),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              formatAttendanceTime(value),
+              style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                fontFeatures: const [FontFeature.tabularFigures()],
+              ),
+            ),
+          ),
+          if (highlighted) ...[
+            Icon(Icons.check_circle_rounded, size: 18, color: colors.primary),
+            const SizedBox(width: 5),
+            Text(
+              '방금 처리됨',
+              style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                color: colors.primary,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ],
       ),
     );
   }

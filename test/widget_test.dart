@@ -216,6 +216,159 @@ void main() {
     schedules.dispose();
   });
 
+  testWidgets('attendance information panel appears before today schedules', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    const profile = UserProfile(
+      name: '윤동현',
+      region: CampusRegion.pangyo5f,
+      classNumber: 8,
+    );
+    final schedules = ScheduleController(ScheduleStore());
+    await schedules.load();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: AttendanceScreen(
+          profile: profile,
+          scheduleController: schedules,
+          notificationScheduler: _NoOpNotificationScheduler(),
+          onEditProfile: () async {},
+          gateway: _WidgetTestAttendanceGateway(),
+          appLinkStream: const Stream.empty(),
+          isAndroid: true,
+          callbackLinkSettings: _FakeCallbackLinkSettings(enabled: true),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('출결 정보 확인하기'), findsOneWidget);
+    expect(find.text('Google 인증 필요'), findsNothing);
+    expect(
+      tester.getTopLeft(find.text('출결 정보 확인하기')).dy,
+      lessThan(tester.getTopLeft(find.text('오늘 예정된 동작')).dy),
+    );
+    schedules.dispose();
+  });
+
+  testWidgets('authentication replaces the panel with friendly status values', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    const profile = UserProfile(
+      name: '윤동현',
+      region: CampusRegion.pangyo5f,
+      classNumber: 8,
+    );
+    final schedules = ScheduleController(ScheduleStore());
+    await schedules.load();
+    final links = StreamController<Uri>();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: AttendanceScreen(
+          profile: profile,
+          scheduleController: schedules,
+          notificationScheduler: _NoOpNotificationScheduler(),
+          onEditProfile: () async {},
+          gateway: _WidgetTestAttendanceGateway(
+            snapshot: const AttendanceSnapshot(
+              networkAllowed: true,
+              checkInTime: '2026-07-24T00:01:23.000Z',
+              checkOutTime: '2026-07-24T09:02:59.000Z',
+            ),
+          ),
+          appLinkStream: links.stream,
+          isAndroid: true,
+          callbackLinkSettings: _FakeCallbackLinkSettings(enabled: true),
+          now: () => DateTime.utc(2026, 7, 24, 3),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    links.add(Uri.parse('https://att.skala-ai.com?token=test-token'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('출결 정보 확인하기'), findsNothing);
+    expect(find.text('오늘 출결 · 7월 24일(금)'), findsOneWidget);
+    expect(find.text('09:01'), findsOneWidget);
+    expect(find.text('18:02'), findsOneWidget);
+    expect(find.text('방금 업데이트됨'), findsOneWidget);
+    expect(find.textContaining('네트워크 허용:'), findsNothing);
+    expect(find.textContaining('2026-07-24T'), findsNothing);
+    expect(
+      tester.getTopLeft(find.text('오늘 출결 · 7월 24일(금)')).dy,
+      lessThan(tester.getTopLeft(find.text('오늘 예정된 동작')).dy),
+    );
+
+    await links.close();
+    schedules.dispose();
+  });
+
+  testWidgets(
+    'confirmed attendance action highlights its row and shows notice',
+    (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      const profile = UserProfile(
+        name: '윤동현',
+        region: CampusRegion.pangyo5f,
+        classNumber: 8,
+      );
+      final schedules = ScheduleController(ScheduleStore());
+      await schedules.load();
+      final links = StreamController<Uri>();
+      final gateway = _WidgetTestAttendanceGateway(
+        snapshot: const AttendanceSnapshot(
+          networkAllowed: true,
+          checkInTime: '2026-07-24T00:01:23.000Z',
+        ),
+        snapshotAfterAction: const AttendanceSnapshot(
+          networkAllowed: true,
+          checkInTime: '2026-07-24T00:01:23.000Z',
+          earlyLeaveTime: '2026-07-24T03:34:56.000Z',
+        ),
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: AttendanceScreen(
+            profile: profile,
+            scheduleController: schedules,
+            notificationScheduler: _NoOpNotificationScheduler(),
+            onEditProfile: () async {},
+            gateway: gateway,
+            appLinkStream: links.stream,
+            isAndroid: true,
+            callbackLinkSettings: _FakeCallbackLinkSettings(enabled: true),
+            now: () => DateTime.utc(2026, 7, 24, 3),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      links.add(Uri.parse('https://att.skala-ai.com?token=test-token'));
+      await tester.pumpAndSettle();
+
+      await tester.ensureVisible(find.widgetWithText(FilledButton, '외출'));
+      await tester.tap(find.widgetWithText(FilledButton, '외출'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('외출 전송'));
+      await tester.pumpAndSettle();
+
+      expect(gateway.recordedAction, AttendanceAction.leave);
+      expect(find.text('12:34'), findsOneWidget);
+      expect(find.text('방금 처리됨'), findsOneWidget);
+      expect(find.text('외출이 완료되었습니다.'), findsOneWidget);
+
+      await tester.pump(const Duration(seconds: 5, milliseconds: 100));
+      expect(find.text('방금 처리됨'), findsNothing);
+
+      await links.close();
+      schedules.dispose();
+    },
+  );
+
   testWidgets('revoked permissions reopen initial setup on app resume', (
     tester,
   ) async {
@@ -1219,12 +1372,15 @@ class _DelayedInitializationNotificationScheduler
 class _WidgetTestAttendanceGateway implements AttendanceGateway {
   _WidgetTestAttendanceGateway({
     this.snapshot = const AttendanceSnapshot(networkAllowed: true),
+    this.snapshotAfterAction,
     this.fetchGate,
   });
 
-  final AttendanceSnapshot snapshot;
+  AttendanceSnapshot snapshot;
+  final AttendanceSnapshot? snapshotAfterAction;
   final Completer<void>? fetchGate;
   UserProfile? authenticationProfile;
+  AttendanceAction? recordedAction;
   int authenticationCallCount = 0;
 
   @override
@@ -1240,7 +1396,10 @@ class _WidgetTestAttendanceGateway implements AttendanceGateway {
   }
 
   @override
-  Future<void> recordAction(String token, AttendanceAction action) async {}
+  Future<void> recordAction(String token, AttendanceAction action) async {
+    recordedAction = action;
+    snapshot = snapshotAfterAction ?? snapshot;
+  }
 
   @override
   void validateAttendanceToken(String token, UserProfile profile) {}
