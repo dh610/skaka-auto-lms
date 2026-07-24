@@ -100,6 +100,38 @@ void main() {
     expect(preferences.containsKey(storageKey), isFalse);
   });
 
+  test('rejects an overflow calendar value in the fetched timestamp', () async {
+    SharedPreferences.setMockInitialValues({
+      storageKey: jsonEncode({
+        'date': '2026-07-24',
+        'fetchedAt': '2026-02-30T09:15:00.000',
+        'checkInTime': '09:00',
+      }),
+    });
+
+    final status = await AttendanceStatusStore().loadFor(koreaDate);
+    final preferences = await SharedPreferences.getInstance();
+
+    expect(status.queried, isFalse);
+    expect(preferences.containsKey(storageKey), isFalse);
+  });
+
+  test('rejects a non-string present attendance time field', () async {
+    SharedPreferences.setMockInitialValues({
+      storageKey: jsonEncode({
+        'date': '2026-07-24',
+        'fetchedAt': fetchedAt.toIso8601String(),
+        'checkInTime': 900,
+      }),
+    });
+
+    final status = await AttendanceStatusStore().loadFor(koreaDate);
+    final preferences = await SharedPreferences.getInstance();
+
+    expect(status.queried, isFalse);
+    expect(preferences.containsKey(storageKey), isFalse);
+  });
+
   test('derives available actions from attendance time sequence only', () {
     DailyAttendanceStatus status({
       String? checkInTime,
