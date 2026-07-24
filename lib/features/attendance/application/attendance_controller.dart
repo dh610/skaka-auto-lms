@@ -229,8 +229,10 @@ class AttendanceController extends ChangeNotifier {
   }
 
   void cancelPendingRequest() {
+    if (_pendingRequest == null) return;
+    _sessionRevision++;
     _pendingRequest = null;
-    notifyListeners();
+    _setState(busy: false);
   }
 
   void cancelReadyAction() {
@@ -375,12 +377,19 @@ class AttendanceController extends ChangeNotifier {
     }
   }
 
-  Future<void> performAction(AttendanceAction action) async {
-    if (_readyAction != null) {
-      _readyAction = null;
-      notifyListeners();
-    }
+  Future<void> performAction(
+    AttendanceAction action, {
+    int? readyActionRevision,
+  }) async {
     if (invalidateExpiredDailyState()) return;
+    if (_readyAction != action ||
+        readyActionRevision == null ||
+        readyActionRevision != _readyActionRevision) {
+      _setState(message: '출결 상태가 변경되었습니다. 최신 상태를 다시 확인해주세요.');
+      return;
+    }
+    _readyAction = null;
+    notifyListeners();
     final sessionRevision = _sessionRevision;
     final operationDate = _koreaDate(_now());
     final token = _token;

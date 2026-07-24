@@ -631,6 +631,38 @@ void main() {
   });
 
   test(
+    'cancelPendingRequest invalidates an in-flight token-reuse preparation',
+    () async {
+      final gateway = _FakeAttendanceGateway();
+      final controller = AttendanceController(
+        profile,
+        gateway,
+        isAndroid: true,
+      );
+      await controller.handleCallback(
+        Uri.parse('https://att.skala-ai.com/?token=test-token'),
+      );
+      final fetchGate = Completer<void>();
+      gateway.fetchGate = fetchGate;
+
+      final request = controller.requestAction(AttendanceAction.leave);
+      await Future<void>.delayed(Duration.zero);
+      expect(controller.busy, isTrue);
+
+      controller.cancelPendingRequest();
+
+      expect(controller.busy, isFalse);
+      fetchGate.complete();
+      expect(await request, AttendanceRequestResult.completed);
+      expect(controller.readyAction, isNull);
+      expect(controller.readyActionRevision, 0);
+      expect(controller.statusRevision, 1);
+      expect(gateway.recordCallCount, 0);
+      controller.dispose();
+    },
+  );
+
+  test(
     'ready action can be cancelled without clearing the live session',
     () async {
       final gateway = _FakeAttendanceGateway();
@@ -661,8 +693,12 @@ void main() {
       Uri.parse('https://att.skala-ai.com/?token=test-token'),
     );
     await controller.requestAction(AttendanceAction.leave);
+    final readyRevision = controller.readyActionRevision;
 
-    final action = controller.performAction(AttendanceAction.leave);
+    final action = controller.performAction(
+      AttendanceAction.leave,
+      readyActionRevision: readyRevision,
+    );
     expect(controller.readyAction, isNull);
     recordGate.complete();
     await action;
@@ -670,6 +706,36 @@ void main() {
     expect(gateway.recordCallCount, 1);
     controller.dispose();
   });
+
+  test(
+    'an old ready revision cannot send a newly prepared same action',
+    () async {
+      final gateway = _FakeAttendanceGateway();
+      final controller = AttendanceController(
+        profile,
+        gateway,
+        isAndroid: true,
+      );
+      await controller.handleCallback(
+        Uri.parse('https://att.skala-ai.com/?token=test-token'),
+      );
+      await controller.requestAction(AttendanceAction.leave);
+      final oldRevision = controller.readyActionRevision;
+      await controller.requestAction(AttendanceAction.leave);
+      final currentRevision = controller.readyActionRevision;
+
+      await controller.performAction(
+        AttendanceAction.leave,
+        readyActionRevision: oldRevision,
+      );
+
+      expect(currentRevision, greaterThan(oldRevision));
+      expect(gateway.recordCallCount, 0);
+      expect(controller.readyAction, AttendanceAction.leave);
+      expect(controller.readyActionRevision, currentRevision);
+      controller.dispose();
+    },
+  );
 
   test(
     'token-reused scheduled action request remembers its occurrence',
@@ -896,14 +962,21 @@ void main() {
     await controller.handleCallback(
       Uri.parse('https://att.skala-ai.com/?token=test-token'),
     );
+    final readyRevision = await _prepareAction(
+      controller,
+      AttendanceAction.leave,
+    );
 
-    await controller.performAction(AttendanceAction.leave);
+    await controller.performAction(
+      AttendanceAction.leave,
+      readyActionRevision: readyRevision,
+    );
 
     expect(gateway.recordedAction, AttendanceAction.leave);
     expect(gateway.recordedToken, 'test-token');
     expect(controller.snapshot?.earlyLeaveTime, '12:00');
     expect(controller.message, '외출 처리가 완료되었습니다.');
-    expect(controller.statusRevision, 2);
+    expect(controller.statusRevision, 3);
     expect(controller.completionRevision, 1);
     expect(controller.lastCompletedAction, AttendanceAction.leave);
     controller.dispose();
@@ -916,10 +989,13 @@ void main() {
       Uri.parse('https://att.skala-ai.com/?token=test-token'),
     );
 
-    await controller.performAction(AttendanceAction.checkIn);
+    await controller.performAction(
+      AttendanceAction.checkIn,
+      readyActionRevision: controller.readyActionRevision,
+    );
 
     expect(gateway.recordedAction, isNull);
-    expect(controller.message, contains('현재 출결 상태에서는'));
+    expect(controller.message, contains('다시 확인'));
     controller.dispose();
   });
 
@@ -956,9 +1032,16 @@ void main() {
       await controller.handleCallback(
         Uri.parse('https://att.skala-ai.com/?token=test-token'),
       );
+      final readyRevision = await _prepareAction(
+        controller,
+        AttendanceAction.leave,
+      );
       gateway.fetchError = TimeoutException('timed out');
 
-      await controller.performAction(AttendanceAction.leave);
+      await controller.performAction(
+        AttendanceAction.leave,
+        readyActionRevision: readyRevision,
+      );
 
       expect(controller.retryLabel, '출결 상태 다시 조회');
       expect(gateway.recordCallCount, 1);
@@ -987,11 +1070,18 @@ void main() {
       await controller.handleCallback(
         Uri.parse('https://att.skala-ai.com/?token=test-token'),
       );
+      final readyRevision = await _prepareAction(
+        controller,
+        AttendanceAction.leave,
+      );
       gateway
         ..fetchError = TimeoutException('timed out')
         ..reflectRecordedAction = false;
 
-      await controller.performAction(AttendanceAction.leave);
+      await controller.performAction(
+        AttendanceAction.leave,
+        readyActionRevision: readyRevision,
+      );
 
       gateway.fetchError = null;
       await controller.retry();
@@ -1018,8 +1108,15 @@ void main() {
       await controller.handleCallback(
         Uri.parse('https://att.skala-ai.com/?token=test-token'),
       );
+      final readyRevision = await _prepareAction(
+        controller,
+        AttendanceAction.leave,
+      );
 
-      await controller.performAction(AttendanceAction.leave);
+      await controller.performAction(
+        AttendanceAction.leave,
+        readyActionRevision: readyRevision,
+      );
 
       expect(controller.completionRevision, 0);
       expect(controller.canRetry, isTrue);
@@ -1048,8 +1145,15 @@ void main() {
       await controller.handleCallback(
         Uri.parse('https://att.skala-ai.com/?token=test-token'),
       );
+      final readyRevision = await _prepareAction(
+        controller,
+        AttendanceAction.leave,
+      );
 
-      await controller.performAction(AttendanceAction.leave);
+      await controller.performAction(
+        AttendanceAction.leave,
+        readyActionRevision: readyRevision,
+      );
 
       expect(controller.completionRevision, 0);
       gateway.recordError = null;
@@ -1099,8 +1203,15 @@ void main() {
       await controller.handleCallback(
         Uri.parse('https://att.skala-ai.com/?token=test-token'),
       );
+      final readyRevision = await _prepareAction(
+        controller,
+        AttendanceAction.leave,
+      );
 
-      final action = controller.performAction(AttendanceAction.leave);
+      final action = controller.performAction(
+        AttendanceAction.leave,
+        readyActionRevision: readyRevision,
+      );
       await Future<void>.delayed(Duration.zero);
       now = DateTime.utc(2026, 7, 24, 15, 0, 1);
       expect(controller.invalidateExpiredDailyState(), isTrue);
@@ -1196,6 +1307,18 @@ void main() {
       isEmpty,
     );
   });
+}
+
+Future<int> _prepareAction(
+  AttendanceController controller,
+  AttendanceAction action,
+) async {
+  expect(
+    await controller.requestAction(action),
+    AttendanceRequestResult.completed,
+  );
+  expect(controller.readyAction, action);
+  return controller.readyActionRevision;
 }
 
 class _FakeAttendanceGateway implements AttendanceGateway {
