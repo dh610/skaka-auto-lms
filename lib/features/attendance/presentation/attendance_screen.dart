@@ -12,11 +12,13 @@ import '../../schedule/domain/training_calendar.dart';
 import '../../schedule/presentation/schedule_list_screen.dart';
 import '../application/attendance_controller.dart';
 import '../data/attendance_completion_store.dart';
-import '../data/callback_link_settings.dart';
 import '../data/attendance_gateway.dart';
+import '../data/attendance_status_store.dart';
+import '../data/callback_link_settings.dart';
 import '../data/skala_attendance_api.dart';
 import '../domain/action_confirmation_policy.dart';
 import '../domain/attendance_snapshot.dart';
+import '../domain/daily_attendance_status.dart';
 import '../domain/today_schedule_status.dart';
 import 'attendance_display_formatter.dart';
 
@@ -33,6 +35,7 @@ class AttendanceScreen extends StatefulWidget {
     this.appLinkStream,
     this.isAndroid,
     this.callbackLinkSettings,
+    this.statusStore,
     this.now,
   });
 
@@ -46,6 +49,7 @@ class AttendanceScreen extends StatefulWidget {
   final Stream<Uri>? appLinkStream;
   final bool? isAndroid;
   final CallbackLinkSettings? callbackLinkSettings;
+  final AttendanceStatusStore? statusStore;
   final DateTime Function()? now;
 
   @override
@@ -56,10 +60,11 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     with WidgetsBindingObserver {
   late final AttendanceController _controller;
   StreamSubscription<Uri>? _linkSubscription;
-  AttendanceAction? _pendingScheduledAction;
-  bool _handlingScheduledAction = false;
   late final CallbackLinkSettings _callbackLinkSettings;
-  _PendingAuthentication? _pendingAuthentication;
+  bool _resumeAuthenticationPending = false;
+  bool _handlingNotificationTap = false;
+  bool _presentingReadyAction = false;
+  int _handledReadyActionRevision = 0;
   int _handledStatusRevision = 0;
   int _handledCompletionRevision = 0;
   bool _showRecentlyUpdated = false;
@@ -80,10 +85,13 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       widget.gateway ?? SkalaAttendanceApi(),
       isAndroid: widget.isAndroid,
       completionStore: AttendanceCompletionStore(),
+      statusStore: widget.statusStore ?? AttendanceStatusStore(),
       now: widget.now,
     );
-    unawaited(_controller.loadCompletionHistory());
     _controller.addListener(_handleControllerChange);
+    unawaited(_controller.loadCompletionHistory());
+    unawaited(_controller.loadDailyStatus());
+    _scheduleDailyExpiry();
     widget.scheduleController.addListener(_handleNotificationTap);
     _linkSubscription = (widget.appLinkStream ?? AppLinks().uriLinkStream)
         .listen(
@@ -102,35 +110,59 @@ class _AttendanceScreenState extends State<AttendanceScreen>
         payload == null ||
         widget.scheduleController.loading ||
         _controller.busy ||
-        _pendingScheduledAction != null ||
-        _handlingScheduledAction) {
+        _handlingNotificationTap) {
       return;
     }
+    _handlingNotificationTap = true;
     widget.notificationScheduler.consumeTap();
     final occurrence = _occurrenceFromPayload(payload);
-    if (occurrence == null) return;
-    if (!_isCurrentScheduledOccurrence(occurrence)) {
-      _controller.reportStaleScheduledOccurrence();
+    if (occurrence == null) {
+      _handlingNotificationTap = false;
       return;
     }
-    _pendingScheduledAction = occurrence.action;
+    if (!_isCurrentScheduledOccurrence(occurrence)) {
+      _controller.reportStaleScheduledOccurrence();
+      _handlingNotificationTap = false;
+      return;
+    }
     unawaited(
-      _requestAuthentication(
+      _beginAction(
+        occurrence.action,
         scheduleId: occurrence.scheduleId,
         scheduledAt: occurrence.scheduledAt,
-      ),
+      ).whenComplete(() {
+        _handlingNotificationTap = false;
+        _handleNotificationTap();
+      }),
     );
   }
 
-  Future<void> _requestAuthentication({
+  Future<void> _beginAction(
+    AttendanceAction action, {
     String? scheduleId,
     DateTime? scheduledAt,
   }) async {
+    final result = await _controller.requestAction(
+      action,
+      scheduleId: scheduleId,
+      scheduledAt: scheduledAt,
+    );
+    if (result == AttendanceRequestResult.authenticationRequired) {
+      await _requestAuthentication();
+    }
+  }
+
+  Future<void> _refreshStatus() async {
+    final result = await _controller.requestStatusRefresh();
+    if (result == AttendanceRequestResult.authenticationRequired) {
+      await _requestAuthentication();
+    }
+  }
+
+  Future<void> _requestAuthentication() async {
     if (widget.isAndroid == false || await _callbackLinkSettings.isEnabled()) {
-      await _controller.startAuthentication(
-        scheduleId: scheduleId,
-        scheduledAt: scheduledAt,
-      );
+      _resumeAuthenticationPending = false;
+      await _controller.startAuthentication();
       return;
     }
     if (!mounted) return;
@@ -157,10 +189,11 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       ),
     );
     if (openSettings != true) {
-      _pendingScheduledAction = null;
+      _resumeAuthenticationPending = false;
+      _controller.cancelPendingRequest();
       return;
     }
-    _pendingAuthentication = (scheduleId: scheduleId, scheduledAt: scheduledAt);
+    _resumeAuthenticationPending = true;
     await _callbackLinkSettings.open();
   }
 
@@ -173,13 +206,12 @@ class _AttendanceScreenState extends State<AttendanceScreen>
   }
 
   Future<void> _resumeAuthenticationAfterSettings() async {
-    final pending = _pendingAuthentication;
-    if (pending == null || !await _callbackLinkSettings.isEnabled()) return;
-    _pendingAuthentication = null;
-    await _controller.startAuthentication(
-      scheduleId: pending.scheduleId,
-      scheduledAt: pending.scheduledAt,
-    );
+    if (!_resumeAuthenticationPending ||
+        !await _callbackLinkSettings.isEnabled()) {
+      return;
+    }
+    _resumeAuthenticationPending = false;
+    await _controller.startAuthentication();
   }
 
   Future<void> _retry() async {
@@ -229,28 +261,28 @@ class _AttendanceScreenState extends State<AttendanceScreen>
 
   void _handleControllerChange() {
     _consumeControllerEvents();
-    final action = _pendingScheduledAction;
-    final snapshot = _controller.snapshot;
+    _consumeReadyAction();
+    _handleNotificationTap();
+  }
+
+  void _consumeReadyAction() {
+    final action = _controller.readyAction;
+    final revision = _controller.readyActionRevision;
     if (action == null ||
-        snapshot == null ||
-        !_controller.authenticated ||
         _controller.busy ||
-        _handlingScheduledAction) {
-      _handleNotificationTap();
+        _presentingReadyAction ||
+        revision <= _handledReadyActionRevision) {
       return;
     }
-    _pendingScheduledAction = null;
-    _handlingScheduledAction = true;
+    _handledReadyActionRevision = revision;
+    _presentingReadyAction = true;
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       try {
         if (!mounted) return;
-        if (snapshot.availableActions.contains(action)) {
-          await _confirmAction(action);
-        } else {
-          _controller.reportUnavailableScheduledAction(action);
-        }
+        await _confirmAction(action, revision);
       } finally {
-        _handlingScheduledAction = false;
+        _presentingReadyAction = false;
+        _consumeReadyAction();
         _handleNotificationTap();
       }
     });
@@ -264,7 +296,6 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       _highlightedAction = null;
       _recentlyUpdatedTimer?.cancel();
       _actionHighlightTimer?.cancel();
-      _dailyExpiryTimer?.cancel();
     }
 
     if (_controller.statusRevision > _handledStatusRevision) {
@@ -319,6 +350,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       () {
         if (!mounted) return;
         _controller.invalidateExpiredDailyState();
+        _scheduleDailyExpiry();
       },
     );
   }
@@ -327,6 +359,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
   void didUpdateWidget(covariant AttendanceScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.profile != widget.profile) {
+      _resumeAuthenticationPending = false;
       _controller.updateProfile(widget.profile);
     }
   }
@@ -347,9 +380,15 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     super.dispose();
   }
 
-  Future<void> _confirmAction(AttendanceAction action) async {
+  Future<void> _confirmAction(
+    AttendanceAction action,
+    int readyActionRevision,
+  ) async {
     if (!requiresAttendanceConfirmation(action)) {
-      await _controller.performAction(action);
+      await _controller.performAction(
+        action,
+        readyActionRevision: readyActionRevision,
+      );
       return;
     }
     final confirmed = await showDialog<bool>(
@@ -374,7 +413,15 @@ class _AttendanceScreenState extends State<AttendanceScreen>
               ],
             ),
     );
-    if (confirmed == true) await _controller.performAction(action);
+    if (confirmed == true) {
+      await _controller.performAction(
+        action,
+        readyActionRevision: readyActionRevision,
+      );
+    } else if (_controller.readyAction == action &&
+        _controller.readyActionRevision == readyActionRevision) {
+      _controller.cancelReadyAction();
+    }
   }
 
   Future<void> _showThemePicker() async {
@@ -445,30 +492,20 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                 onEditProfile: widget.onEditProfile,
               ),
               const SizedBox(height: 16),
-              if (_controller.snapshot case final snapshot?)
-                _StatusCard(
-                  snapshot: snapshot,
-                  busy: _controller.busy,
-                  date: (widget.now ?? DateTime.now)().toUtc(),
-                  showRecentlyUpdated: _showRecentlyUpdated,
-                  highlightedAction: _highlightedAction,
-                  message: _controller.message,
-                  hasError: _controller.hasError,
-                  canRetry: _controller.canRetry,
-                  retryLabel: _controller.retryLabel,
-                  onAction: _confirmAction,
-                  onRetry: _retry,
-                )
-              else
-                _AuthenticationCard(
-                  busy: _controller.busy,
-                  message: _controller.message,
-                  hasError: _controller.hasError,
-                  canRetry: _controller.canRetry,
-                  retryLabel: _controller.retryLabel,
-                  onAuthenticate: _requestAuthentication,
-                  onRetry: _retry,
-                ),
+              _StatusCard(
+                status: _controller.dailyStatus,
+                liveSnapshot: _controller.snapshot,
+                busy: _controller.busy,
+                showRecentlyUpdated: _showRecentlyUpdated,
+                highlightedAction: _highlightedAction,
+                message: _controller.message,
+                hasError: _controller.hasError,
+                canRetry: _controller.canRetry,
+                retryLabel: _controller.retryLabel,
+                onRefresh: _refreshStatus,
+                onAction: _beginAction,
+                onRetry: _retry,
+              ),
               const SizedBox(height: 16),
               _TodaySchedulesCard(
                 controller: widget.scheduleController,
@@ -490,8 +527,6 @@ class _AttendanceScreenState extends State<AttendanceScreen>
   }
 }
 
-typedef _PendingAuthentication = ({String? scheduleId, DateTime? scheduledAt});
-
 String _completionMessage(AttendanceAction action) {
   return switch (action) {
     AttendanceAction.checkIn => '입실이 완료되었습니다.',
@@ -499,99 +534,6 @@ String _completionMessage(AttendanceAction action) {
     AttendanceAction.leave => '외출이 완료되었습니다.',
     AttendanceAction.returnFromLeave => '복귀가 완료되었습니다.',
   };
-}
-
-class _AuthenticationCard extends StatelessWidget {
-  const _AuthenticationCard({
-    required this.busy,
-    required this.message,
-    required this.hasError,
-    required this.canRetry,
-    required this.retryLabel,
-    required this.onAuthenticate,
-    required this.onRetry,
-  });
-
-  final bool busy;
-  final String message;
-  final bool hasError;
-  final bool canRetry;
-  final String retryLabel;
-  final Future<void> Function() onAuthenticate;
-  final Future<void> Function() onRetry;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    return Card(
-      color: hasError
-          ? colors.errorContainer.withValues(alpha: 0.55)
-          : colors.surfaceContainerLow,
-      child: Padding(
-        padding: const EdgeInsets.all(18),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                CircleAvatar(
-                  backgroundColor: hasError
-                      ? colors.error
-                      : colors.secondaryContainer,
-                  foregroundColor: hasError
-                      ? colors.onError
-                      : colors.onSecondaryContainer,
-                  child: Icon(
-                    hasError
-                        ? Icons.error_outline_rounded
-                        : Icons.lock_person_outlined,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        hasError ? '출결 정보를 확인하지 못했습니다' : '출결 정보 확인하기',
-                        style: Theme.of(context).textTheme.titleMedium
-                            ?.copyWith(fontWeight: FontWeight.w700),
-                      ),
-                      const SizedBox(height: 3),
-                      Text(
-                        message,
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: colors.onSurfaceVariant,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton.icon(
-                onPressed: busy
-                    ? null
-                    : canRetry
-                    ? onRetry
-                    : onAuthenticate,
-                icon: busy
-                    ? const SizedBox.square(
-                        dimension: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.open_in_browser_outlined),
-                label: Text(canRetry ? retryLabel : 'Google 인증 시작'),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
 }
 
 class _EarlyCheckOutConfirmationDialog extends StatefulWidget {
@@ -962,45 +904,66 @@ class _ProfileCard extends StatelessWidget {
 
 class _StatusCard extends StatelessWidget {
   const _StatusCard({
-    required this.snapshot,
+    required this.status,
+    required this.liveSnapshot,
     required this.busy,
-    required this.date,
     required this.showRecentlyUpdated,
     required this.highlightedAction,
     required this.message,
     required this.hasError,
     required this.canRetry,
     required this.retryLabel,
+    required this.onRefresh,
     required this.onAction,
     required this.onRetry,
   });
 
-  final AttendanceSnapshot snapshot;
+  final DailyAttendanceStatus status;
+  final AttendanceSnapshot? liveSnapshot;
   final bool busy;
-  final DateTime date;
   final bool showRecentlyUpdated;
   final AttendanceAction? highlightedAction;
   final String message;
   final bool hasError;
   final bool canRetry;
   final String retryLabel;
+  final Future<void> Function() onRefresh;
   final Future<void> Function(AttendanceAction action) onAction;
   final Future<void> Function() onRetry;
 
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
+    final availableActions = status.queried
+        ? status.sequenceAvailableActions
+        : AttendanceAction.values.toSet();
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(18),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              '오늘 출결 · ${formatAttendanceDate(date)}',
-              style: Theme.of(
-                context,
-              ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    '오늘 출결 · ${formatAttendanceDate(status.koreaDate)}',
+                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                IconButton(
+                  tooltip: '출결 상태 새로고침',
+                  onPressed: busy ? null : onRefresh,
+                  icon: busy
+                      ? const SizedBox.square(
+                          dimension: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.refresh_rounded),
+                ),
+              ],
             ),
             if (showRecentlyUpdated) ...[
               const SizedBox(height: 4),
@@ -1014,24 +977,30 @@ class _StatusCard extends StatelessWidget {
             ],
             const SizedBox(height: 12),
             _AttendanceStatusTiles(
-              snapshot: snapshot,
+              status: status,
               highlightedAction: highlightedAction,
             ),
             const SizedBox(height: 16),
-            if (hasError) ...[
+            if (message.isNotEmpty) ...[
               Container(
                 width: double.infinity,
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: colors.errorContainer.withValues(alpha: 0.65),
+                  color: hasError
+                      ? colors.errorContainer.withValues(alpha: 0.65)
+                      : colors.surfaceContainerHighest.withValues(alpha: 0.55),
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Text(
                   message,
-                  style: TextStyle(color: colors.onErrorContainer),
+                  style: TextStyle(
+                    color: hasError
+                        ? colors.onErrorContainer
+                        : colors.onSurfaceVariant,
+                  ),
                 ),
               ),
-              if (canRetry) ...[
+              if (hasError && canRetry) ...[
                 const SizedBox(height: 10),
                 SizedBox(
                   width: double.infinity,
@@ -1042,15 +1011,19 @@ class _StatusCard extends StatelessWidget {
                   ),
                 ),
               ],
-            ] else if (!snapshot.networkAllowed)
+              const SizedBox(height: 12),
+            ],
+            if (liveSnapshot?.networkAllowed == false) ...[
               Text(
                 '현재 네트워크에서는 출결 동작을 전송할 수 없습니다.',
                 style: TextStyle(
                   color: colors.error,
                   fontWeight: FontWeight.w600,
                 ),
-              )
-            else if (snapshot.availableActions.isEmpty)
+              ),
+              const SizedBox(height: 12),
+            ],
+            if (availableActions.isEmpty)
               const Text('현재 가능한 출결 동작이 없습니다.')
             else ...[
               Text('가능한 동작', style: Theme.of(context).textTheme.titleMedium),
@@ -1058,7 +1031,7 @@ class _StatusCard extends StatelessWidget {
               Wrap(
                 spacing: 8,
                 runSpacing: 8,
-                children: snapshot.availableActions.map((action) {
+                children: availableActions.map((action) {
                   return FilledButton.tonal(
                     onPressed: busy ? null : () => onAction(action),
                     child: Text(action.label),
@@ -1075,20 +1048,20 @@ class _StatusCard extends StatelessWidget {
 
 class _AttendanceStatusTiles extends StatelessWidget {
   const _AttendanceStatusTiles({
-    required this.snapshot,
+    required this.status,
     required this.highlightedAction,
   });
 
-  final AttendanceSnapshot snapshot;
+  final DailyAttendanceStatus status;
   final AttendanceAction? highlightedAction;
 
   @override
   Widget build(BuildContext context) {
     final statuses = [
-      (AttendanceAction.checkIn, snapshot.checkInTime),
-      (AttendanceAction.checkOut, snapshot.checkOutTime),
-      (AttendanceAction.leave, snapshot.earlyLeaveTime),
-      (AttendanceAction.returnFromLeave, snapshot.returnTime),
+      (AttendanceAction.checkIn, status.checkInTime),
+      (AttendanceAction.checkOut, status.checkOutTime),
+      (AttendanceAction.leave, status.earlyLeaveTime),
+      (AttendanceAction.returnFromLeave, status.returnTime),
     ];
     final textScaler = MediaQuery.textScalerOf(context);
 
@@ -1113,6 +1086,7 @@ class _AttendanceStatusTiles extends StatelessWidget {
               child: _AttendanceStatusTile(
                 action: status.$1,
                 value: status.$2,
+                queried: this.status.queried,
                 highlighted: highlightedAction == status.$1,
               ),
             );
@@ -1127,11 +1101,13 @@ class _AttendanceStatusTile extends StatelessWidget {
   const _AttendanceStatusTile({
     required this.action,
     required this.value,
+    required this.queried,
     required this.highlighted,
   });
 
   final AttendanceAction action;
   final String? value;
+  final bool queried;
   final bool highlighted;
 
   @override
@@ -1163,7 +1139,7 @@ class _AttendanceStatusTile extends StatelessWidget {
           ),
           const SizedBox(height: 3),
           Text(
-            formatAttendanceTime(value),
+            queried ? formatAttendanceTime(value) : '확인 전',
             style: Theme.of(context).textTheme.titleLarge?.copyWith(
               fontFeatures: const [FontFeature.tabularFigures()],
               fontWeight: FontWeight.w700,
