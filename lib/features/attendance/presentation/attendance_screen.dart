@@ -820,7 +820,9 @@ class _StatusCard extends StatelessWidget {
         messageKind == AttendanceMessageKind.error ||
         messageKind == AttendanceMessageKind.refreshRequired;
     final displayedMessage =
-        needsRefreshGuidance && !message.contains('새로고침 버튼')
+        needsRefreshGuidance &&
+            !message.contains('새로고침 버튼') &&
+            message != 'SKALA Wi-Fi에 연결 후 다시 시도해주세요.'
         ? '$message 새로고침 버튼을 눌러 다시 확인해 주세요.'
         : message;
     final isError = messageKind == AttendanceMessageKind.error;
@@ -889,15 +891,14 @@ class _StatusCard extends StatelessWidget {
             ],
             if (liveSnapshot?.networkAllowed == false) ...[
               Text(
-                '현재 네트워크에서는 출결 동작을 전송할 수 없습니다.',
+                'SKALA Wi-Fi에 연결 후 다시 시도해주세요.',
                 style: TextStyle(
                   color: colors.error,
                   fontWeight: FontWeight.w600,
                 ),
               ),
               const SizedBox(height: 12),
-            ],
-            if (availableActions.isEmpty)
+            ] else if (availableActions.isEmpty)
               const Text('현재 가능한 출결 동작이 없습니다.')
             else ...[
               Text('가능한 동작', style: Theme.of(context).textTheme.titleMedium),
