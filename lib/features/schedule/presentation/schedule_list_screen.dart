@@ -188,17 +188,17 @@ class _ScheduleListScreenState extends State<ScheduleListScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
-                          Opacity(
-                            opacity: displayedEnabled ? 1 : 0.55,
-                            child: ListTile(
-                              onTap: () => _openEditor(context, schedule),
-                              contentPadding: const EdgeInsets.fromLTRB(
-                                16,
-                                8,
-                                8,
-                                8,
-                              ),
-                              leading: CircleAvatar(
+                          ListTile(
+                            onTap: () => _openEditor(context, schedule),
+                            contentPadding: const EdgeInsets.fromLTRB(
+                              16,
+                              8,
+                              8,
+                              8,
+                            ),
+                            leading: Opacity(
+                              opacity: displayedEnabled ? 1 : 0.55,
+                              child: CircleAvatar(
                                 backgroundColor: Theme.of(
                                   context,
                                 ).colorScheme.secondaryContainer,
@@ -207,33 +207,42 @@ class _ScheduleListScreenState extends State<ScheduleListScreen> {
                                 ).colorScheme.onSecondaryContainer,
                                 child: Icon(schedule.action.icon),
                               ),
-                              title: Text(
+                            ),
+                            title: Opacity(
+                              opacity: displayedEnabled ? 1 : 0.55,
+                              child: Text(
                                 '${schedule.displayTime} · '
                                 '${schedule.action.label}',
                                 style: const TextStyle(
                                   fontWeight: FontWeight.w700,
                                 ),
                               ),
-                              subtitle: Padding(
+                            ),
+                            subtitle: Opacity(
+                              opacity: displayedEnabled ? 1 : 0.55,
+                              child: Padding(
                                 padding: const EdgeInsets.only(top: 3),
                                 child: Text(schedule.recurrenceLabel),
                               ),
-                              trailing: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Switch(
+                            ),
+                            trailing: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Opacity(
+                                  opacity: displayedEnabled ? 1 : 0.55,
+                                  child: Switch(
                                     value: displayedEnabled,
                                     onChanged: (enabled) =>
                                         _setEnabled(context, schedule, enabled),
                                   ),
-                                  IconButton(
-                                    tooltip: '삭제',
-                                    onPressed: () =>
-                                        _confirmDelete(context, schedule),
-                                    icon: const Icon(Icons.delete_outline),
-                                  ),
-                                ],
-                              ),
+                                ),
+                                IconButton(
+                                  tooltip: '삭제',
+                                  onPressed: () =>
+                                      _confirmDelete(context, schedule),
+                                  icon: const Icon(Icons.delete_outline),
+                                ),
+                              ],
                             ),
                           ),
                           if (automaticResumeAt != null)

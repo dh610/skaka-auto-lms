@@ -33,6 +33,10 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.textContaining('부터 다시 켜기'), findsOneWidget);
+    expect(
+      find.ancestor(of: find.byTooltip('삭제'), matching: find.byType(Opacity)),
+      findsNothing,
+    );
     await tester.tap(find.textContaining('오전 9:00 · 입실'));
     await tester.pumpAndSettle();
     expect(find.byType(ScheduleEditScreen), findsOneWidget);
