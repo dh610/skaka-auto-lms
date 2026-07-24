@@ -30,7 +30,7 @@ class SkalaAttendanceApp extends StatefulWidget {
     this.notificationPermissionSettings,
     this.callbackLinkSettings,
     this.appVersionProvider,
-    this.attendanceGateway,
+    this.attendanceGatewayFactory,
     this.themeModeStore,
     this.initialSetupStore,
     this.profileVerifier,
@@ -41,7 +41,7 @@ class SkalaAttendanceApp extends StatefulWidget {
   final NotificationPermissionSettings? notificationPermissionSettings;
   final CallbackLinkSettings? callbackLinkSettings;
   final AppVersionProvider? appVersionProvider;
-  final AttendanceGateway? attendanceGateway;
+  final AttendanceGateway Function()? attendanceGatewayFactory;
   final ThemeModeStore? themeModeStore;
   final InitialSetupStore? initialSetupStore;
   final ProfileVerifier? profileVerifier;
@@ -253,7 +253,7 @@ class _SkalaAttendanceAppState extends State<SkalaAttendanceApp>
               scheduleController: _scheduleController,
               notificationScheduler: _notificationScheduler,
               onOpenSettings: _openSettings,
-              gateway: widget.attendanceGateway,
+              gatewayFactory: widget.attendanceGatewayFactory,
               callbackLinkSettings: _callbackLinkSettings,
               isAndroid: widget.isAndroid,
             ),

@@ -1752,6 +1752,41 @@ void main() {
   );
 
   test(
+    'scheduled warning cannot overwrite uncertain-action recovery',
+    () async {
+      final gateway = _FakeAttendanceGateway()
+        ..recordError = TimeoutException('timed out')
+        ..reflectRecordedAction = false;
+      final controller = AttendanceController(
+        profile,
+        gateway,
+        isAndroid: true,
+      );
+      await controller.handleCallback(
+        Uri.parse('https://att.skala-ai.com/?token=test-token'),
+      );
+      final readyRevision = await _prepareAction(
+        controller,
+        AttendanceAction.leave,
+      );
+      await controller.performAction(
+        AttendanceAction.leave,
+        readyActionRevision: readyRevision,
+      );
+      final importantMessage = controller.message;
+
+      controller.reportStaleScheduledOccurrence();
+
+      expect(controller.message, importantMessage);
+      expect(controller.messageKind, AttendanceMessageKind.error);
+      expect(controller.hasError, isTrue);
+      expect(controller.canRetry, isTrue);
+      expect(controller.retryLabel, '출결 상태 다시 조회');
+      controller.dispose();
+    },
+  );
+
+  test(
     'header refresh completes an uncertain action only when status reflects it',
     () async {
       final gateway = _FakeAttendanceGateway()

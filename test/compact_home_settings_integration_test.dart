@@ -265,7 +265,7 @@ void main() {
       'initialSetup.completed': true,
     });
     final scheduler = _Scheduler();
-    final gateway = _Gateway();
+    final gateways = <_Gateway>[];
 
     await tester.pumpWidget(
       SkalaAttendanceApp(
@@ -274,7 +274,11 @@ void main() {
         callbackLinkSettings: _CallbackSettings(),
         appVersionProvider: _VersionProvider(),
         profileVerifier: _Verifier(),
-        attendanceGateway: gateway,
+        attendanceGatewayFactory: () {
+          final gateway = _Gateway();
+          gateways.add(gateway);
+          return gateway;
+        },
         isAndroid: true,
       ),
     );
@@ -294,7 +298,8 @@ void main() {
     await tester.tap(find.widgetWithText(FilledButton, '입실'));
     await tester.pump();
     await tester.pump();
-    expect(gateway.authenticationProfile?.name, '김스칼라');
+    expect(gateways, hasLength(1));
+    expect(gateways.single.authenticationProfile?.name, '김스칼라');
 
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
     await tester.pump();
@@ -303,6 +308,62 @@ void main() {
     await tester.tap(find.byTooltip('설정'));
     await tester.pumpAndSettle();
     expect(find.text('김스칼라'), findsOneWidget);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+    expect(gateways.single.closeCount, 1);
+  });
+
+  testWidgets('attendance gateway factory creates once per screen state', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    const profile = UserProfile(
+      name: '윤동현',
+      region: CampusRegion.pangyo5f,
+      classNumber: 8,
+    );
+    final schedules = await _schedules();
+    final scheduler = _Scheduler();
+    final gateways = <_Gateway>[];
+
+    Widget screen(Key key) => MaterialApp(
+      home: AttendanceScreen(
+        key: key,
+        profile: profile,
+        scheduleController: schedules,
+        notificationScheduler: scheduler,
+        gatewayFactory: () {
+          final gateway = _Gateway();
+          gateways.add(gateway);
+          return gateway;
+        },
+        appLinkStream: const Stream.empty(),
+        isAndroid: true,
+        callbackLinkSettings: _CallbackSettings(),
+      ),
+    );
+
+    await tester.pumpWidget(screen(const ValueKey('first')));
+    await tester.pump();
+    expect(gateways, hasLength(1));
+
+    await tester.pumpWidget(screen(const ValueKey('first')));
+    await tester.pump();
+    expect(gateways, hasLength(1));
+    expect(gateways.first.closeCount, 0);
+
+    await tester.pumpWidget(screen(const ValueKey('second')));
+    await tester.pump();
+    expect(gateways, hasLength(2));
+    expect(gateways.first.closeCount, 1);
+    expect(gateways.last.closeCount, 0);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+    expect(gateways.first.closeCount, 1);
+    expect(gateways.last.closeCount, 1);
+    schedules.dispose();
   });
 
   testWidgets(
@@ -425,9 +486,12 @@ class _Gateway implements AttendanceGateway {
 
   final Object? fetchError;
   UserProfile? authenticationProfile;
+  int closeCount = 0;
 
   @override
-  void close() {}
+  void close() {
+    closeCount++;
+  }
 
   @override
   Future<AttendanceSnapshot> fetchToday(String token) async {

@@ -33,12 +33,13 @@ class AttendanceScreen extends StatefulWidget {
     this.themeMode = ThemeMode.system,
     this.onThemeModeChanged,
     this.gateway,
+    this.gatewayFactory,
     this.appLinkStream,
     this.isAndroid,
     this.callbackLinkSettings,
     this.statusStore,
     this.now,
-  });
+  }) : assert(gateway == null || gatewayFactory == null);
 
   final UserProfile profile;
   final ScheduleController scheduleController;
@@ -48,6 +49,7 @@ class AttendanceScreen extends StatefulWidget {
   final ThemeMode themeMode;
   final ValueChanged<ThemeMode>? onThemeModeChanged;
   final AttendanceGateway? gateway;
+  final AttendanceGateway Function()? gatewayFactory;
   final Stream<Uri>? appLinkStream;
   final bool? isAndroid;
   final CallbackLinkSettings? callbackLinkSettings;
@@ -86,7 +88,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
         PlatformCallbackLinkSettings(isAndroid: widget.isAndroid);
     _controller = AttendanceController(
       widget.profile,
-      widget.gateway ?? SkalaAttendanceApi(),
+      widget.gateway ?? widget.gatewayFactory?.call() ?? SkalaAttendanceApi(),
       isAndroid: widget.isAndroid,
       completionStore: AttendanceCompletionStore(),
       statusStore: widget.statusStore ?? AttendanceStatusStore(),

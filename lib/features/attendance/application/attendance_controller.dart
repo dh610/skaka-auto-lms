@@ -15,6 +15,15 @@ enum AttendanceRequestResult { completed, authenticationRequired }
 
 enum AttendanceMessageKind { informational, warning, refreshRequired, error }
 
+extension on AttendanceMessageKind {
+  int get priority => switch (this) {
+    AttendanceMessageKind.informational => 0,
+    AttendanceMessageKind.warning => 1,
+    AttendanceMessageKind.refreshRequired => 2,
+    AttendanceMessageKind.error => 3,
+  };
+}
+
 class AttendanceController extends ChangeNotifier {
   AttendanceController(
     this._profile,
@@ -438,6 +447,8 @@ class AttendanceController extends ChangeNotifier {
       _setState(
         message: '출결 상태가 변경되었습니다. 최신 상태를 다시 확인해주세요.',
         messageKind: AttendanceMessageKind.refreshRequired,
+        hasError: false,
+        recovery: _AttendanceRecovery.refresh,
       );
       return;
     }
@@ -451,6 +462,8 @@ class AttendanceController extends ChangeNotifier {
       _setState(
         message: 'Google 인증이 필요합니다.',
         messageKind: AttendanceMessageKind.warning,
+        hasError: false,
+        recovery: _AttendanceRecovery.authenticate,
       );
       return;
     }
@@ -458,6 +471,8 @@ class AttendanceController extends ChangeNotifier {
       _setState(
         message: '현재 출결 상태에서는 ${action.label}할 수 없습니다.',
         messageKind: AttendanceMessageKind.warning,
+        hasError: false,
+        clearRecovery: true,
       );
       return;
     }
@@ -526,6 +541,9 @@ class AttendanceController extends ChangeNotifier {
     _setState(
       message: '예약된 ${action.label} 동작은 현재 출결 상태에서 실행할 수 없습니다.',
       messageKind: AttendanceMessageKind.warning,
+      hasError: false,
+      clearRecovery: true,
+      preserveHigherPriorityMessage: true,
     );
   }
 
@@ -533,6 +551,9 @@ class AttendanceController extends ChangeNotifier {
     _setState(
       message: '변경되거나 삭제된 일정의 알림이라 실행하지 않았습니다.',
       messageKind: AttendanceMessageKind.warning,
+      hasError: false,
+      clearRecovery: true,
+      preserveHigherPriorityMessage: true,
     );
   }
 
@@ -799,24 +820,32 @@ class AttendanceController extends ChangeNotifier {
     bool? hasError,
     _AttendanceRecovery? recovery,
     bool clearRecovery = false,
+    bool preserveHigherPriorityMessage = false,
   }) {
     if (busy != null) _busy = busy;
-    if (message != null) {
+    final resolvedMessageKind =
+        messageKind ??
+        (hasError == true
+            ? AttendanceMessageKind.error
+            : AttendanceMessageKind.informational);
+    final canReplaceMessage =
+        message == null ||
+        !preserveHigherPriorityMessage ||
+        resolvedMessageKind.priority >= _messageKind.priority;
+    if (message != null && canReplaceMessage) {
       _message = message;
-      _messageKind =
-          messageKind ??
-          (hasError == true
-              ? AttendanceMessageKind.error
-              : AttendanceMessageKind.informational);
+      _messageKind = resolvedMessageKind;
     }
     if (clearSnapshot) _snapshot = null;
     if (snapshot != null) _snapshot = snapshot;
-    if (hasError != null) _hasError = hasError;
-    if (clearRecovery) {
-      _recovery = null;
-      _hasError = false;
-    } else if (recovery != null) {
-      _recovery = recovery;
+    if (canReplaceMessage) {
+      if (hasError != null) _hasError = hasError;
+      if (clearRecovery) {
+        _recovery = null;
+        _hasError = false;
+      } else if (recovery != null) {
+        _recovery = recovery;
+      }
     }
     notifyListeners();
   }

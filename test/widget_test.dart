@@ -1070,6 +1070,75 @@ void main() {
     },
   );
 
+  testWidgets('queued stale notification preserves uncertain-action recovery', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    const profile = UserProfile(
+      name: '윤동현',
+      region: CampusRegion.pangyo5f,
+      classNumber: 8,
+    );
+    final schedules = ScheduleController(ScheduleStore());
+    await schedules.load();
+    final notifications = _NoOpNotificationScheduler();
+    final links = StreamController<Uri>();
+    final recordGate = Completer<void>();
+    final gateway =
+        _WidgetTestAttendanceGateway(
+            snapshot: const AttendanceSnapshot(
+              networkAllowed: true,
+              checkInTime: '09:00',
+            ),
+            recordGate: recordGate,
+          )
+          ..recordError = TimeoutException('timed out')
+          ..reflectRecordedAction = false;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: AttendanceScreen(
+          profile: profile,
+          scheduleController: schedules,
+          notificationScheduler: notifications,
+          onEditProfile: () async {},
+          gateway: gateway,
+          appLinkStream: links.stream,
+          isAndroid: true,
+          callbackLinkSettings: _FakeCallbackLinkSettings(enabled: true),
+          now: () => DateTime.utc(2026, 7, 24, 3),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.widgetWithText(FilledButton, '외출'));
+    await tester.tap(find.widgetWithText(FilledButton, '외출'));
+    await tester.pump();
+    links.add(Uri.parse('https://att.skala-ai.com?token=test-token'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('외출 전송'));
+    await tester.pump();
+
+    notifications.emit(
+      '{"scheduleId":"deleted-leave","action":"leave",'
+      '"scheduledAt":"2026-07-24T12:00:00.000"}',
+    );
+    await tester.pump();
+    expect(notifications.tapPayload.value, isNotNull);
+
+    recordGate.complete();
+    await tester.pumpAndSettle();
+
+    expect(notifications.tapPayload.value, isNull);
+    expect(find.textContaining('외출 처리 결과를 확인하지 못했습니다.'), findsOneWidget);
+    expect(find.textContaining('중복 전송하지 말고'), findsOneWidget);
+    expect(find.textContaining('변경되거나 삭제된 일정의 알림'), findsNothing);
+    expect(gateway.authenticationCallCount, 1);
+
+    await links.close();
+    schedules.dispose();
+  });
+
   testWidgets('action reuses a valid token and still asks for confirmation', (
     tester,
   ) async {
@@ -3040,12 +3109,14 @@ class _WidgetTestAttendanceGateway implements AttendanceGateway {
     this.snapshot = const AttendanceSnapshot(networkAllowed: true),
     this.snapshotAfterAction,
     this.fetchGate,
+    this.recordGate,
     this.authenticationGate,
   });
 
   AttendanceSnapshot snapshot;
   final AttendanceSnapshot? snapshotAfterAction;
   final Completer<void>? fetchGate;
+  final Completer<void>? recordGate;
   final Completer<void>? authenticationGate;
   UserProfile? authenticationProfile;
   AttendanceAction? recordedAction;
@@ -3075,6 +3146,7 @@ class _WidgetTestAttendanceGateway implements AttendanceGateway {
   Future<void> recordAction(String token, AttendanceAction action) async {
     recordCallCount++;
     recordedAction = action;
+    await recordGate?.future;
     if (reflectRecordedAction) snapshot = snapshotAfterAction ?? snapshot;
     if (recordError case final error?) throw error;
   }
