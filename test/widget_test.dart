@@ -302,7 +302,8 @@ void main() {
     );
     await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('출결 상태 새로고침'));
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump();
 
     expect(gateway.authenticationCallCount, 1);
     expect(gateway.recordedAction, isNull);
@@ -377,7 +378,8 @@ void main() {
     );
     await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('출결 상태 새로고침'));
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump();
     links.add(Uri.parse('https://att.skala-ai.com?token=test-token'));
     await tester.pumpAndSettle();
 
@@ -390,6 +392,75 @@ void main() {
     expect(gateway.authenticationCallCount, 1);
     expect(gateway.fetchCallCount, 2);
     expect(gateway.recordedAction, isNull);
+
+    await links.close();
+    schedules.dispose();
+  });
+
+  testWidgets('browser callback wait locks refresh and attendance actions', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    const profile = UserProfile(
+      name: '윤동현',
+      region: CampusRegion.pangyo5f,
+      classNumber: 8,
+    );
+    final schedules = ScheduleController(ScheduleStore());
+    await schedules.load();
+    final links = StreamController<Uri>();
+    final gateway = _WidgetTestAttendanceGateway();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: AttendanceScreen(
+          profile: profile,
+          scheduleController: schedules,
+          notificationScheduler: _NoOpNotificationScheduler(),
+          onEditProfile: () async {},
+          gateway: gateway,
+          appLinkStream: links.stream,
+          isAndroid: true,
+          callbackLinkSettings: _FakeCallbackLinkSettings(enabled: true),
+          now: () => DateTime.utc(2026, 7, 24, 3),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('출결 상태 새로고침'));
+    await tester.pump();
+    await tester.pump();
+
+    expect(gateway.authenticationCallCount, 1);
+    final refreshButton = tester.widget<IconButton>(
+      find
+          .ancestor(
+            of: find.byTooltip('출결 상태 새로고침'),
+            matching: find.byType(IconButton),
+          )
+          .first,
+    );
+    expect(refreshButton.onPressed, isNull);
+    for (final action in AttendanceAction.values) {
+      final button = tester.widget<FilledButton>(
+        find.widgetWithText(FilledButton, action.label),
+      );
+      expect(button.onPressed, isNull);
+    }
+
+    links.add(Uri.parse('https://att.skala-ai.com?token=test-token'));
+    await tester.pumpAndSettle();
+
+    final enabledRefresh = tester.widget<IconButton>(
+      find
+          .ancestor(
+            of: find.byTooltip('출결 상태 새로고침'),
+            matching: find.byType(IconButton),
+          )
+          .first,
+    );
+    expect(enabledRefresh.onPressed, isNotNull);
+    expect(gateway.authenticationCallCount, 1);
 
     await links.close();
     schedules.dispose();
@@ -439,7 +510,8 @@ void main() {
       await tester.ensureVisible(find.widgetWithText(FilledButton, '외출'));
       await tester.pumpAndSettle();
       await tester.tap(find.widgetWithText(FilledButton, '외출'));
-      await tester.pumpAndSettle();
+      await tester.pump();
+      await tester.pump();
       expect(gateway.authenticationCallCount, 1);
       expect(gateway.recordedAction, isNull);
 
@@ -498,7 +570,8 @@ void main() {
     );
     await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('출결 상태 새로고침'));
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump();
     links.add(Uri.parse('https://att.skala-ai.com?token=test-token'));
     await tester.pumpAndSettle();
 
@@ -556,7 +629,8 @@ void main() {
     );
     await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('출결 상태 새로고침'));
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump();
     links.add(Uri.parse('https://att.skala-ai.com?token=test-token'));
     await tester.pumpAndSettle();
     await tester.ensureVisible(find.widgetWithText(FilledButton, '외출'));
@@ -670,7 +744,8 @@ void main() {
         ),
       ),
     );
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump();
     links.add(Uri.parse('https://att.skala-ai.com?token=test-token'));
     await tester.pumpAndSettle();
 
@@ -734,7 +809,8 @@ void main() {
         ),
       ),
     );
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump();
     links.add(Uri.parse('https://att.skala-ai.com?token=test-token'));
     await tester.pumpAndSettle();
 
@@ -1343,7 +1419,8 @@ void main() {
         ),
       ),
     );
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump();
     links.add(Uri.parse('https://att.skala-ai.com?token=test-token'));
     await tester.pump();
     await tester.pump();
@@ -1566,7 +1643,8 @@ void main() {
     expect(notifications.tapPayload.value, isNotNull);
 
     await schedules.load();
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump();
 
     expect(gateway.authenticationCallCount, 1);
     expect(notifications.tapPayload.value, isNull);
@@ -1615,7 +1693,8 @@ void main() {
     await tester.pumpAndSettle();
     expect(linkSettings.openCount, 1);
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump();
     expect(gateway.authenticationProfile, profile);
     schedules.dispose();
   });
@@ -1671,6 +1750,69 @@ void main() {
     expect(find.text('09:00'), findsOneWidget);
 
     await links.close();
+    schedules.dispose();
+  });
+
+  testWidgets('profile change invalidates a gated settings continuation', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    const profile = UserProfile(
+      name: '윤동현',
+      region: CampusRegion.pangyo5f,
+      classNumber: 8,
+    );
+    const changedProfile = UserProfile(
+      name: '다른 사용자',
+      region: CampusRegion.pangyo5f,
+      classNumber: 9,
+    );
+    final schedules = ScheduleController(ScheduleStore());
+    await schedules.load();
+    final gateway = _WidgetTestAttendanceGateway();
+    final linkSettings = _FakeCallbackLinkSettings(
+      enabled: false,
+      enableOnOpen: true,
+    );
+
+    Widget buildScreen(UserProfile currentProfile) {
+      return MaterialApp(
+        home: AttendanceScreen(
+          key: const Key('attendance-screen'),
+          profile: currentProfile,
+          scheduleController: schedules,
+          notificationScheduler: _NoOpNotificationScheduler(),
+          onEditProfile: () async {},
+          gateway: gateway,
+          appLinkStream: const Stream.empty(),
+          isAndroid: true,
+          callbackLinkSettings: linkSettings,
+          now: () => DateTime.utc(2026, 7, 24, 3),
+        ),
+      );
+    }
+
+    await tester.pumpWidget(buildScreen(profile));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('출결 상태 새로고침'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('링크 설정 열기'));
+    await tester.pumpAndSettle();
+
+    final settingsGate = Completer<bool>();
+    linkSettings.isEnabledGate = settingsGate;
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+    await tester.pump();
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pump();
+
+    await tester.pumpWidget(buildScreen(changedProfile));
+    await tester.pump();
+    settingsGate.complete(true);
+    await tester.pumpAndSettle();
+
+    expect(gateway.authenticationCallCount, 0);
+
     schedules.dispose();
   });
 
@@ -1943,10 +2085,15 @@ class _FakeCallbackLinkSettings implements CallbackLinkSettings {
 
   bool enabled;
   final bool enableOnOpen;
+  Completer<bool>? isEnabledGate;
   int openCount = 0;
 
   @override
-  Future<bool> isEnabled() async => enabled;
+  Future<bool> isEnabled() async {
+    final gate = isEnabledGate;
+    if (gate != null) return gate.future;
+    return enabled;
+  }
 
   @override
   Future<void> open() async {

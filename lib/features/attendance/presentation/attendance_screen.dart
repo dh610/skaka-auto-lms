@@ -61,7 +61,8 @@ class _AttendanceScreenState extends State<AttendanceScreen>
   late final AttendanceController _controller;
   StreamSubscription<Uri>? _linkSubscription;
   late final CallbackLinkSettings _callbackLinkSettings;
-  bool _resumeAuthenticationPending = false;
+  int _authenticationContinuationRevision = 0;
+  int? _pendingSettingsContinuation;
   bool _handlingNotificationTap = false;
   bool _presentingReadyAction = false;
   int _handledReadyActionRevision = 0;
@@ -110,6 +111,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
         payload == null ||
         widget.scheduleController.loading ||
         _controller.busy ||
+        _controller.awaitingAuthenticationCallback ||
         _handlingNotificationTap) {
       return;
     }
@@ -160,8 +162,15 @@ class _AttendanceScreenState extends State<AttendanceScreen>
   }
 
   Future<void> _requestAuthentication() async {
-    if (widget.isAndroid == false || await _callbackLinkSettings.isEnabled()) {
-      _resumeAuthenticationPending = false;
+    final continuationRevision = ++_authenticationContinuationRevision;
+    _pendingSettingsContinuation = null;
+    final linkEnabled =
+        widget.isAndroid == false || await _callbackLinkSettings.isEnabled();
+    if (!mounted ||
+        continuationRevision != _authenticationContinuationRevision) {
+      return;
+    }
+    if (linkEnabled) {
       await _controller.startAuthentication();
       return;
     }
@@ -188,30 +197,45 @@ class _AttendanceScreenState extends State<AttendanceScreen>
         ],
       ),
     );
+    if (!mounted ||
+        continuationRevision != _authenticationContinuationRevision) {
+      return;
+    }
     if (openSettings != true) {
-      _resumeAuthenticationPending = false;
       _controller.cancelPendingRequest();
       return;
     }
-    _resumeAuthenticationPending = true;
+    _pendingSettingsContinuation = continuationRevision;
     await _callbackLinkSettings.open();
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      _controller.invalidateExpiredDailyState();
+      if (_controller.invalidateExpiredDailyState()) {
+        _invalidateAuthenticationContinuation();
+      }
       unawaited(_resumeAuthenticationAfterSettings());
     }
   }
 
   Future<void> _resumeAuthenticationAfterSettings() async {
-    if (!_resumeAuthenticationPending ||
-        !await _callbackLinkSettings.isEnabled()) {
+    final continuationRevision = _pendingSettingsContinuation;
+    if (continuationRevision == null) return;
+    final linkEnabled = await _callbackLinkSettings.isEnabled();
+    if (!mounted ||
+        _pendingSettingsContinuation != continuationRevision ||
+        continuationRevision != _authenticationContinuationRevision ||
+        !linkEnabled) {
       return;
     }
-    _resumeAuthenticationPending = false;
+    _pendingSettingsContinuation = null;
     await _controller.startAuthentication();
+  }
+
+  void _invalidateAuthenticationContinuation() {
+    _authenticationContinuationRevision++;
+    _pendingSettingsContinuation = null;
   }
 
   Future<void> _retry() async {
@@ -359,13 +383,14 @@ class _AttendanceScreenState extends State<AttendanceScreen>
   void didUpdateWidget(covariant AttendanceScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.profile != widget.profile) {
-      _resumeAuthenticationPending = false;
+      _invalidateAuthenticationContinuation();
       _controller.updateProfile(widget.profile);
     }
   }
 
   @override
   void dispose() {
+    _invalidateAuthenticationContinuation();
     WidgetsBinding.instance.removeObserver(this);
     _linkSubscription?.cancel();
     widget.notificationScheduler.tapPayload.removeListener(
@@ -457,6 +482,8 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     return ListenableBuilder(
       listenable: _controller,
       builder: (context, _) {
+        final attendanceLocked =
+            _controller.busy || _controller.awaitingAuthenticationCallback;
         return Scaffold(
           appBar: AppBar(
             title: const Text('SKALA 출결'),
@@ -488,14 +515,14 @@ class _AttendanceScreenState extends State<AttendanceScreen>
               const SizedBox(height: 20),
               _ProfileCard(
                 profile: widget.profile,
-                busy: _controller.busy,
+                busy: attendanceLocked,
                 onEditProfile: widget.onEditProfile,
               ),
               const SizedBox(height: 16),
               _StatusCard(
                 status: _controller.dailyStatus,
                 liveSnapshot: _controller.snapshot,
-                busy: _controller.busy,
+                busy: attendanceLocked,
                 showRecentlyUpdated: _showRecentlyUpdated,
                 highlightedAction: _highlightedAction,
                 message: _controller.message,

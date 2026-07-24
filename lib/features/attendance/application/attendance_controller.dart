@@ -46,6 +46,7 @@ class AttendanceController extends ChangeNotifier {
   _AttendanceRequest? _pendingRequest;
   AttendanceAction? _readyAction;
   int _readyActionRevision = 0;
+  bool _awaitingAuthenticationCallback = false;
   DateTime? _snapshotKoreaDate;
   late DailyAttendanceStatus _dailyStatus;
   int _sessionRevision = 0;
@@ -64,6 +65,7 @@ class AttendanceController extends ChangeNotifier {
   AttendanceAction? get lastCompletedAction => _lastCompletedAction;
   AttendanceAction? get readyAction => _readyAction;
   int get readyActionRevision => _readyActionRevision;
+  bool get awaitingAuthenticationCallback => _awaitingAuthenticationCallback;
   bool get canRetry => _recovery != null;
   bool get retryRequiresAuthentication =>
       _recovery == _AttendanceRecovery.authenticate;
@@ -155,6 +157,7 @@ class AttendanceController extends ChangeNotifier {
     _pendingActionConfirmation = null;
     _pendingRequest = null;
     _readyAction = null;
+    _awaitingAuthenticationCallback = false;
     _snapshotKoreaDate = null;
     _dailyStatus = DailyAttendanceStatus.unqueried(_koreaDate(_now()));
     _completedOccurrences = {};
@@ -174,6 +177,7 @@ class AttendanceController extends ChangeNotifier {
     DateTime? scheduledAt,
   }) async {
     invalidateExpiredDailyState();
+    if (_awaitingAuthenticationCallback) return;
     _pendingRequest ??= const _StatusRefreshRequest();
     final sessionRevision = ++_sessionRevision;
     final operationDate = _koreaDate(_now());
@@ -195,6 +199,7 @@ class AttendanceController extends ChangeNotifier {
         await _rememberScheduledOccurrence(scheduleId, scheduledAt);
         if (!_operationIsCurrent(sessionRevision, operationDate)) return;
       }
+      _awaitingAuthenticationCallback = _isAndroid;
       _setState(
         message: _isAndroid
             ? 'Chrome에서 Google 계정을 선택하세요. 인증 후 앱으로 돌아옵니다.'
@@ -202,6 +207,7 @@ class AttendanceController extends ChangeNotifier {
       );
     } catch (error) {
       if (!_operationIsCurrent(sessionRevision, operationDate)) return;
+      _awaitingAuthenticationCallback = false;
       _setState(
         message: _friendlyError(error, operation: 'Google 인증을 시작하지 못했습니다.'),
         hasError: true,
@@ -229,9 +235,10 @@ class AttendanceController extends ChangeNotifier {
   }
 
   void cancelPendingRequest() {
-    if (_pendingRequest == null) return;
+    if (_pendingRequest == null && !_awaitingAuthenticationCallback) return;
     _sessionRevision++;
     _pendingRequest = null;
+    _awaitingAuthenticationCallback = false;
     _setState(busy: false);
   }
 
@@ -246,6 +253,9 @@ class AttendanceController extends ChangeNotifier {
     DateTime? scheduledAt,
   }) async {
     invalidateExpiredDailyState();
+    if (_awaitingAuthenticationCallback) {
+      return AttendanceRequestResult.completed;
+    }
     final sessionRevision = ++_sessionRevision;
     final operationDate = _koreaDate(_now());
     _pendingRequest = request;
@@ -326,6 +336,7 @@ class AttendanceController extends ChangeNotifier {
         uri.host != 'att.skala-ai.com') {
       return;
     }
+    _awaitingAuthenticationCallback = false;
     final token = uri.queryParameters['token'];
     if (token == null || token.isEmpty) {
       _setState(
@@ -454,6 +465,7 @@ class AttendanceController extends ChangeNotifier {
   }
 
   void reportLinkError(Object error) {
+    _awaitingAuthenticationCallback = false;
     _setState(
       message: '인증 결과를 앱으로 가져오지 못했습니다. Google 인증을 다시 진행해주세요.',
       hasError: true,
@@ -599,6 +611,7 @@ class AttendanceController extends ChangeNotifier {
     _pendingActionConfirmation = null;
     _pendingRequest = null;
     _readyAction = null;
+    _awaitingAuthenticationCallback = false;
     _setState(
       busy: false,
       clearSnapshot: true,
@@ -705,6 +718,8 @@ class AttendanceController extends ChangeNotifier {
 
   @override
   void dispose() {
+    _sessionRevision++;
+    _awaitingAuthenticationCallback = false;
     _gateway.close();
     super.dispose();
   }

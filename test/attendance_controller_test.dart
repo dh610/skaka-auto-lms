@@ -435,6 +435,144 @@ void main() {
     controller.dispose();
   });
 
+  test(
+    'an awaited authentication callback keeps the original intent exclusive',
+    () async {
+      final gateway = _FakeAttendanceGateway();
+      final controller = AttendanceController(
+        profile,
+        gateway,
+        isAndroid: true,
+      );
+
+      expect(
+        await controller.requestAction(AttendanceAction.leave),
+        AttendanceRequestResult.authenticationRequired,
+      );
+      await controller.startAuthentication();
+
+      expect(controller.awaitingAuthenticationCallback, isTrue);
+      expect(
+        await controller.requestStatusRefresh(),
+        AttendanceRequestResult.completed,
+      );
+      expect(
+        await controller.requestAction(AttendanceAction.checkOut),
+        AttendanceRequestResult.completed,
+      );
+      await controller.startAuthentication();
+      expect(gateway.authenticationCallCount, 1);
+
+      await controller.handleCallback(
+        Uri.parse('https://att.skala-ai.com/?token=test-token'),
+      );
+
+      expect(controller.awaitingAuthenticationCallback, isFalse);
+      expect(controller.readyAction, AttendanceAction.leave);
+      expect(gateway.fetchCallCount, 1);
+      controller.dispose();
+    },
+  );
+
+  test(
+    'callback error clears waiting state but preserves retry intent',
+    () async {
+      final gateway = _FakeAttendanceGateway();
+      final controller = AttendanceController(
+        profile,
+        gateway,
+        isAndroid: true,
+      );
+
+      await controller.requestAction(AttendanceAction.leave);
+      await controller.startAuthentication();
+      expect(controller.awaitingAuthenticationCallback, isTrue);
+
+      await controller.handleCallback(Uri.parse('https://att.skala-ai.com/'));
+
+      expect(controller.awaitingAuthenticationCallback, isFalse);
+      expect(controller.retryRequiresAuthentication, isTrue);
+
+      await controller.startAuthentication();
+      await controller.handleCallback(
+        Uri.parse('https://att.skala-ai.com/?token=test-token'),
+      );
+
+      expect(gateway.authenticationCallCount, 2);
+      expect(controller.readyAction, AttendanceAction.leave);
+      controller.dispose();
+    },
+  );
+
+  test('pending cancellation clears callback waiting state', () async {
+    final gateway = _FakeAttendanceGateway();
+    final controller = AttendanceController(profile, gateway, isAndroid: true);
+
+    await controller.requestAction(AttendanceAction.leave);
+    await controller.startAuthentication();
+    expect(controller.awaitingAuthenticationCallback, isTrue);
+
+    controller.cancelPendingRequest();
+
+    expect(controller.awaitingAuthenticationCallback, isFalse);
+    expect(
+      await controller.requestStatusRefresh(),
+      AttendanceRequestResult.authenticationRequired,
+    );
+    controller.dispose();
+  });
+
+  test(
+    'canceling an in-flight browser launch cannot restore waiting state',
+    () async {
+      final authenticationGate = Completer<void>();
+      final gateway = _FakeAttendanceGateway()
+        ..authenticationGate = authenticationGate;
+      final controller = AttendanceController(
+        profile,
+        gateway,
+        isAndroid: true,
+      );
+      await controller.requestAction(AttendanceAction.leave);
+
+      final authentication = controller.startAuthentication();
+      await Future<void>.delayed(Duration.zero);
+      expect(controller.busy, isTrue);
+
+      controller.cancelPendingRequest();
+      authenticationGate.complete();
+      await authentication;
+
+      expect(controller.awaitingAuthenticationCallback, isFalse);
+      expect(controller.busy, isFalse);
+      controller.dispose();
+    },
+  );
+
+  test(
+    'disposing an in-flight browser launch invalidates its result',
+    () async {
+      final authenticationGate = Completer<void>();
+      final gateway = _FakeAttendanceGateway()
+        ..authenticationGate = authenticationGate;
+      final controller = AttendanceController(
+        profile,
+        gateway,
+        isAndroid: true,
+      );
+      await controller.requestStatusRefresh();
+
+      final authentication = controller.startAuthentication();
+      await Future<void>.delayed(Duration.zero);
+      controller.dispose();
+
+      authenticationGate.complete();
+      await authentication;
+
+      expect(controller.awaitingAuthenticationCallback, isFalse);
+    },
+  );
+
   test('status refresh reuses a valid in-memory token', () async {
     final gateway = _FakeAttendanceGateway();
     final controller = AttendanceController(profile, gateway, isAndroid: true);
@@ -787,6 +925,8 @@ void main() {
     final gateway = _FakeAttendanceGateway();
     final controller = AttendanceController(profile, gateway, isAndroid: true);
     await controller.requestAction(AttendanceAction.leave);
+    await controller.startAuthentication();
+    expect(controller.awaitingAuthenticationCallback, isTrue);
 
     controller.updateProfile(
       const UserProfile(
@@ -795,6 +935,7 @@ void main() {
         classNumber: 9,
       ),
     );
+    expect(controller.awaitingAuthenticationCallback, isFalse);
     await controller.startAuthentication();
     await controller.handleCallback(
       Uri.parse('https://att.skala-ai.com/?token=test-token'),
@@ -824,6 +965,8 @@ void main() {
         now: () => now,
       );
       await controller.requestAction(AttendanceAction.leave);
+      await controller.startAuthentication();
+      expect(controller.awaitingAuthenticationCallback, isTrue);
       final callback = controller.handleCallback(
         Uri.parse('https://att.skala-ai.com/?token=test-token'),
       );
@@ -831,6 +974,7 @@ void main() {
 
       now = DateTime.utc(2026, 7, 24, 15, 0, 1);
       expect(controller.invalidateExpiredDailyState(), isTrue);
+      expect(controller.awaitingAuthenticationCallback, isFalse);
       fetchGate.complete();
       await callback;
 
@@ -838,6 +982,33 @@ void main() {
       expect(controller.snapshot, isNull);
       expect(controller.readyAction, isNull);
       expect(controller.readyActionRevision, 0);
+      controller.dispose();
+    },
+  );
+
+  test(
+    'Korean date change clears an awaited authentication callback',
+    () async {
+      var now = DateTime.utc(2026, 7, 24, 14, 59, 59);
+      final gateway = _FakeAttendanceGateway();
+      final controller = AttendanceController(
+        profile,
+        gateway,
+        isAndroid: true,
+        now: () => now,
+      );
+      await controller.requestAction(AttendanceAction.leave);
+      await controller.startAuthentication();
+      expect(controller.awaitingAuthenticationCallback, isTrue);
+
+      now = DateTime.utc(2026, 7, 24, 15, 0, 1);
+      expect(controller.invalidateExpiredDailyState(), isTrue);
+
+      expect(controller.awaitingAuthenticationCallback, isFalse);
+      expect(
+        await controller.requestStatusRefresh(),
+        AttendanceRequestResult.authenticationRequired,
+      );
       controller.dispose();
     },
   );
@@ -1006,6 +1177,7 @@ void main() {
 
     await controller.startAuthentication();
 
+    expect(controller.awaitingAuthenticationCallback, isFalse);
     expect(controller.hasError, isTrue);
     expect(controller.canRetry, isTrue);
     expect(controller.retryLabel, 'Google 인증 다시 시도');
@@ -1336,6 +1508,7 @@ class _FakeAttendanceGateway implements AttendanceGateway {
   Object? validationError;
   Object? fetchError;
   Object? recordError;
+  Completer<void>? authenticationGate;
   Completer<void>? fetchGate;
   Completer<void>? recordGate;
   bool reflectRecordedAction = true;
@@ -1347,6 +1520,7 @@ class _FakeAttendanceGateway implements AttendanceGateway {
   @override
   Future<void> startBrowserAuthentication(UserProfile profile) async {
     authenticationCallCount++;
+    await authenticationGate?.future;
     if (authenticationError case final error?) throw error;
     authenticationProfile = profile;
   }
