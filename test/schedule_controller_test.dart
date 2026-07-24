@@ -116,6 +116,20 @@ void main() {
     expect(restored.alarmSettings, settings);
   });
 
+  test('malformed alarm settings fall back without losing the schedule', () {
+    final schedule = AttendanceSchedule.fromJson({
+      'id': 'malformed-alarm',
+      'action': 'checkIn',
+      'hour': 9,
+      'minute': 0,
+      'weekdays': [1],
+      'enabled': true,
+      'alarmSettings': {'sound': 'not-a-map', 'maximumSnoozeCount': 'invalid'},
+    });
+
+    expect(schedule.alarmSettings, const AlarmSettings());
+  });
+
   test('new schedules reuse the last saved alarm settings', () async {
     final controller = ScheduleController(ScheduleStore());
     await controller.load();

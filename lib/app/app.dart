@@ -60,6 +60,7 @@ class _SkalaAttendanceAppState extends State<SkalaAttendanceApp>
   late final InitialSetupStore _initialSetupStore;
   late final NotificationScheduler _notificationScheduler;
   late final NotificationPermissionSettings _notificationPermissionSettings;
+  FullScreenAlarmPermissionSettings? _fullScreenAlarmPermissionSettings;
   late final CallbackLinkSettings _callbackLinkSettings;
   late final AppVersionProvider _appVersionProvider;
   late final ScheduleController _scheduleController;
@@ -85,6 +86,10 @@ class _SkalaAttendanceAppState extends State<SkalaAttendanceApp>
             isAndroid: widget.isAndroid,
           ),
         };
+    _fullScreenAlarmPermissionSettings = switch (_notificationScheduler) {
+      final FullScreenAlarmPermissionSettings settings => settings,
+      _ => null,
+    };
     _callbackLinkSettings =
         widget.callbackLinkSettings ?? PlatformCallbackLinkSettings();
     _appVersionProvider =
@@ -217,6 +222,7 @@ class _SkalaAttendanceAppState extends State<SkalaAttendanceApp>
           themeMode: _themeMode,
           isAndroid: widget.isAndroid,
           notificationSettings: _notificationPermissionSettings,
+          fullScreenAlarmSettings: _fullScreenAlarmPermissionSettings,
           callbackLinkSettings: _callbackLinkSettings,
           appVersionProvider: _appVersionProvider,
           onEditProfile: _editProfile,

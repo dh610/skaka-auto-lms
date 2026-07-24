@@ -7,6 +7,8 @@ import 'package:skala_attendance/features/schedule/application/notification_sche
 import 'package:skala_attendance/features/schedule/application/schedule_controller.dart';
 import 'package:skala_attendance/features/schedule/data/schedule_store.dart';
 import 'package:skala_attendance/features/schedule/domain/attendance_schedule.dart';
+import 'package:skala_attendance/features/schedule/domain/alarm_occurrence.dart';
+import 'package:skala_attendance/features/schedule/domain/alarm_settings.dart';
 import 'package:skala_attendance/features/schedule/domain/schedule_reminder.dart';
 
 void main() {
@@ -50,6 +52,32 @@ void main() {
     ], now: DateTime(2026, 7, 16));
 
     expect(reminders.single.dateTime, DateTime(2026, 7, 17, 10));
+  });
+
+  test('alarm occurrence carries settings and attendance payload', () {
+    const schedule = AttendanceSchedule(
+      id: 'native-alarm',
+      action: AttendanceAction.leave,
+      hour: 12,
+      minute: 30,
+      weekdays: {DateTime.friday},
+      enabled: true,
+      alarmSettings: AlarmSettings(
+        volumePercent: 55,
+        vibrationEnabled: false,
+        snoozeMinutes: 3,
+        maximumSnoozeCount: 1,
+      ),
+    );
+    final occurrence = AlarmOccurrence(
+      schedule: schedule,
+      scheduledAt: DateTime(2026, 7, 24, 12, 30),
+    );
+
+    expect(occurrence.occurrenceKey, 'native-alarm@2026-07-24T12:30:00.000');
+    expect(occurrence.toPlatformMap()['volumePercent'], 55);
+    expect(occurrence.toPlatformMap()['maximumSnoozeCount'], 1);
+    expect(occurrence.attendancePayload, contains('"action":"leave"'));
   });
 
   test('controller requests permission and resyncs after save', () async {

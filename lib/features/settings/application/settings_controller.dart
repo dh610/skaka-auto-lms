@@ -15,6 +15,7 @@ class SettingsController extends ChangeNotifier {
     required ThemeMode initialThemeMode,
     required bool isAndroid,
     required NotificationPermissionSettings notificationSettings,
+    FullScreenAlarmPermissionSettings? fullScreenAlarmSettings,
     required CallbackLinkSettings callbackLinkSettings,
     required AppVersionProvider appVersionProvider,
     required Future<UserProfile?> Function() editProfile,
@@ -25,6 +26,7 @@ class SettingsController extends ChangeNotifier {
        _dependencies = (
          isAndroid: isAndroid,
          notificationSettings: notificationSettings,
+         fullScreenAlarmSettings: fullScreenAlarmSettings,
          callbackLinkSettings: callbackLinkSettings,
          appVersionProvider: appVersionProvider,
          editProfile: editProfile,
@@ -35,6 +37,7 @@ class SettingsController extends ChangeNotifier {
   final ({
     bool isAndroid,
     NotificationPermissionSettings notificationSettings,
+    FullScreenAlarmPermissionSettings? fullScreenAlarmSettings,
     CallbackLinkSettings callbackLinkSettings,
     AppVersionProvider appVersionProvider,
     Future<UserProfile?> Function() editProfile,
@@ -48,6 +51,8 @@ class SettingsController extends ChangeNotifier {
   SettingsPermissionStatus _notificationStatus =
       SettingsPermissionStatus.loading;
   SettingsPermissionStatus _exactAlarmStatus = SettingsPermissionStatus.loading;
+  SettingsPermissionStatus _fullScreenAlarmStatus =
+      SettingsPermissionStatus.loading;
   SettingsPermissionStatus _callbackLinkStatus =
       SettingsPermissionStatus.loading;
   SettingsVersionStatus _versionStatus = SettingsVersionStatus.loading;
@@ -61,6 +66,7 @@ class SettingsController extends ChangeNotifier {
   ThemeMode get themeMode => _themeMode;
   SettingsPermissionStatus get notificationStatus => _notificationStatus;
   SettingsPermissionStatus get exactAlarmStatus => _exactAlarmStatus;
+  SettingsPermissionStatus get fullScreenAlarmStatus => _fullScreenAlarmStatus;
   SettingsPermissionStatus get callbackLinkStatus => _callbackLinkStatus;
   SettingsVersionStatus get versionStatus => _versionStatus;
   AppVersion? get appVersion => _appVersion;
@@ -71,6 +77,7 @@ class SettingsController extends ChangeNotifier {
     _notificationStatus = SettingsPermissionStatus.loading;
     if (_dependencies.isAndroid) {
       _exactAlarmStatus = SettingsPermissionStatus.loading;
+      _fullScreenAlarmStatus = SettingsPermissionStatus.loading;
       _callbackLinkStatus = SettingsPermissionStatus.loading;
     }
     _versionStatus = SettingsVersionStatus.loading;
@@ -92,12 +99,19 @@ class SettingsController extends ChangeNotifier {
       _notificationStatus = _permissionStatus(status.notificationsAllowed);
       if (_dependencies.isAndroid) {
         _exactAlarmStatus = _permissionStatus(status.exactAlarmsAllowed);
+        final fullScreenSettings = _dependencies.fullScreenAlarmSettings;
+        _fullScreenAlarmStatus = fullScreenSettings == null
+            ? SettingsPermissionStatus.unavailable
+            : _permissionStatus(
+                await fullScreenSettings.canUseFullScreenIntent(),
+              );
       }
     } catch (_) {
       if (!_isActive(generation)) return;
       _notificationStatus = SettingsPermissionStatus.unavailable;
       if (_dependencies.isAndroid) {
         _exactAlarmStatus = SettingsPermissionStatus.unavailable;
+        _fullScreenAlarmStatus = SettingsPermissionStatus.unavailable;
       }
     }
     _notifyIfActive(generation);
@@ -145,6 +159,17 @@ class SettingsController extends ChangeNotifier {
     _dependencies.notificationSettings.openExactAlarmSettings,
     '정확한 알람 설정 화면을 열지 못했습니다.',
   );
+
+  Future<String?> openFullScreenAlarmSettings() {
+    final settings = _dependencies.fullScreenAlarmSettings;
+    if (settings == null) {
+      return Future.value('전체 화면 알람 설정 화면을 열지 못했습니다.');
+    }
+    return _openSettings(
+      settings.openFullScreenIntentSettings,
+      '전체 화면 알람 설정 화면을 열지 못했습니다.',
+    );
+  }
 
   Future<String?> openCallbackLinkSettings() => _openSettings(
     _dependencies.callbackLinkSettings.open,

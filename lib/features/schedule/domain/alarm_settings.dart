@@ -75,8 +75,12 @@ class AlarmSettings {
     final snooze = json['snoozeMinutes'];
     final maximum = json['maximumSnoozeCount'];
     final buttonName = json['volumeButtonAction'];
+    final sound = switch (json['sound']) {
+      final Map<String, dynamic> value => value,
+      _ => null,
+    };
     return AlarmSettings(
-      sound: AlarmSound.fromJson(json['sound'] as Map<String, dynamic>?),
+      sound: AlarmSound.fromJson(sound),
       volumePercent: volume is int && volume >= 0 && volume <= 100
           ? volume
           : 100,
@@ -85,9 +89,10 @@ class AlarmSettings {
       snoozeMinutes: snooze is int && const {1, 3, 5, 10, 15}.contains(snooze)
           ? snooze
           : 5,
-      maximumSnoozeCount:
-          maximum == null || (maximum is int && maximum >= 0 && maximum <= 10)
-          ? maximum as int?
+      maximumSnoozeCount: json.containsKey('maximumSnoozeCount')
+          ? maximum == null || (maximum is int && maximum >= 0 && maximum <= 10)
+                ? maximum as int?
+                : 3
           : 3,
       volumeButtonAction: buttonName is String
           ? AlarmVolumeButtonAction.values.firstWhere(
