@@ -96,21 +96,21 @@ class AlarmRingingService : Service() {
             .setFullScreenIntent(fullScreenIntent, true)
             .addAction(
                 0,
-                "끄기",
-                actionPendingIntent(alarm, AlarmContract.actionDismiss, 1),
-            )
-            .addAction(
-                0,
                 "출결 확인",
-                actionPendingIntent(alarm, AlarmContract.actionOpenAttendance, 2),
+                actionPendingIntent(alarm, AlarmContract.actionOpenAttendance, 1),
             )
         if (alarm.canSnooze()) {
             builder.addAction(
                 0,
                 "${alarm.snoozeMinutes}분 뒤 다시 알림",
-                actionPendingIntent(alarm, AlarmContract.actionSnooze, 3),
+                actionPendingIntent(alarm, AlarmContract.actionSnooze, 2),
             )
         }
+        builder.addAction(
+            0,
+            "끄기",
+            actionPendingIntent(alarm, AlarmContract.actionDismiss, 3),
+        )
         return builder.build()
     }
 

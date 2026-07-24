@@ -66,7 +66,9 @@ class AlarmActivity : Activity() {
                 setPadding(0, padding, 0, padding)
             })
             addView(
-                button("끄기") { perform(AlarmContract.actionDismiss) },
+                button("Google 인증 후 출결 확인") {
+                    perform(AlarmContract.actionOpenAttendance)
+                },
                 matchWidth(),
             )
             if (alarm.canSnooze()) {
@@ -78,9 +80,7 @@ class AlarmActivity : Activity() {
                 )
             }
             addView(
-                button("Google 인증 후 출결 확인") {
-                    perform(AlarmContract.actionOpenAttendance)
-                },
+                button("끄기") { perform(AlarmContract.actionDismiss) },
                 matchWidth(),
             )
             addView(Space(context), LinearLayout.LayoutParams(1, 0, 1f))
