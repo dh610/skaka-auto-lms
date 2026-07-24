@@ -10,10 +10,13 @@ object AlarmActions {
         val alarm = AlarmStore.find(context, occurrenceKey)
         when (action) {
             AlarmContract.actionSnooze -> {
-                if (alarm != null) AlarmScheduler.snooze(context, alarm)
+                val snoozed = alarm?.let { AlarmScheduler.snooze(context, it) }
+                if (snoozed != null) SnoozeNotification.show(context, snoozed)
             }
             AlarmContract.actionOpenAttendance -> {
                 if (alarm != null) {
+                    AlarmScheduler.cancel(context, alarm)
+                    SnoozeNotification.cancel(context, alarm)
                     AlarmBridge.pendingAttendancePayload = alarm.attendancePayload
                     context.startActivity(
                         Intent(context, MainActivity::class.java)
@@ -27,6 +30,12 @@ object AlarmActions {
                                     Intent.FLAG_ACTIVITY_SINGLE_TOP,
                             ),
                     )
+                }
+            }
+            AlarmContract.actionDismiss -> {
+                if (alarm != null) {
+                    AlarmScheduler.cancel(context, alarm)
+                    SnoozeNotification.cancel(context, alarm)
                 }
             }
         }

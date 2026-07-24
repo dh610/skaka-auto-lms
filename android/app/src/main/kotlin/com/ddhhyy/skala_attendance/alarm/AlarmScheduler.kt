@@ -8,7 +8,10 @@ import android.net.Uri
 
 object AlarmScheduler {
     fun sync(context: Context, alarms: List<AlarmData>) {
-        AlarmStore.all(context).forEach { cancel(context, it) }
+        AlarmStore.all(context).forEach {
+            cancel(context, it)
+            SnoozeNotification.cancel(context, it)
+        }
         AlarmStore.replaceAll(context, alarms)
         alarms.filter { it.scheduledAtMillis > System.currentTimeMillis() }
             .forEach { schedule(context, it) }
@@ -17,15 +20,19 @@ object AlarmScheduler {
     fun restore(context: Context) {
         AlarmStore.all(context)
             .filter { it.scheduledAtMillis > System.currentTimeMillis() }
-            .forEach { schedule(context, it) }
+            .forEach {
+                schedule(context, it)
+                if (it.snoozeCount > 0) SnoozeNotification.show(context, it)
+            }
     }
 
-    fun snooze(context: Context, alarm: AlarmData) {
-        if (!alarm.canSnooze()) return
+    fun snooze(context: Context, alarm: AlarmData): AlarmData? {
+        if (!alarm.canSnooze()) return null
         AlarmStore.remove(context, alarm.occurrenceKey)
         val snoozed = alarm.snoozed(System.currentTimeMillis())
         AlarmStore.upsert(context, snoozed)
         schedule(context, snoozed)
+        return snoozed
     }
 
     private fun schedule(context: Context, alarm: AlarmData) {
@@ -47,7 +54,7 @@ object AlarmScheduler {
         )
     }
 
-    private fun cancel(context: Context, alarm: AlarmData) {
+    fun cancel(context: Context, alarm: AlarmData) {
         val manager = context.getSystemService(AlarmManager::class.java)
         val operation = alarmPendingIntent(context, alarm, PendingIntent.FLAG_NO_CREATE)
         if (operation != null) {

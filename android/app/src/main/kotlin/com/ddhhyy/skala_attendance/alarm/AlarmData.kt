@@ -14,7 +14,6 @@ data class AlarmData(
     val gradualVolumeEnabled: Boolean,
     val snoozeMinutes: Int,
     val maximumSnoozeCount: Int?,
-    val volumeButtonAction: String,
     val snoozeCount: Int,
     val attendancePayload: String,
 ) {
@@ -30,7 +29,6 @@ data class AlarmData(
         .put("gradualVolumeEnabled", gradualVolumeEnabled)
         .put("snoozeMinutes", snoozeMinutes)
         .put("maximumSnoozeCount", maximumSnoozeCount ?: JSONObject.NULL)
-        .put("volumeButtonAction", volumeButtonAction)
         .put("snoozeCount", snoozeCount)
         .put("attendancePayload", attendancePayload)
 
@@ -60,7 +58,6 @@ data class AlarmData(
                 gradualVolumeEnabled = value.boolean("gradualVolumeEnabled"),
                 snoozeMinutes = value.int("snoozeMinutes"),
                 maximumSnoozeCount = (value["maximumSnoozeCount"] as? Number)?.toInt(),
-                volumeButtonAction = value.string("volumeButtonAction"),
                 snoozeCount = value.int("snoozeCount"),
                 attendancePayload = value.string("attendancePayload"),
             )
@@ -83,7 +80,6 @@ data class AlarmData(
                 } else {
                     value.getInt("maximumSnoozeCount")
                 },
-                volumeButtonAction = value.getString("volumeButtonAction"),
                 snoozeCount = value.getInt("snoozeCount"),
                 attendancePayload = value.getString("attendancePayload"),
             )

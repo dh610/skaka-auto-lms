@@ -29,6 +29,10 @@ class AlarmRingingService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action == AlarmContract.actionSilence) {
+            stopSoundAndVibration()
+            return START_NOT_STICKY
+        }
         val occurrenceKey =
             intent?.getStringExtra(AlarmContract.extraOccurrenceKey)
                 ?: return START_NOT_STICKY
@@ -45,6 +49,13 @@ class AlarmRingingService : Service() {
     }
 
     override fun onDestroy() {
+        stopSoundAndVibration()
+        wakeLock?.takeIf { it.isHeld }?.release()
+        wakeLock = null
+        super.onDestroy()
+    }
+
+    private fun stopSoundAndVibration() {
         handler.removeCallbacksAndMessages(null)
         mediaPlayer?.runCatching {
             stop()
@@ -53,9 +64,6 @@ class AlarmRingingService : Service() {
         mediaPlayer = null
         vibrator?.cancel()
         vibrator = null
-        wakeLock?.takeIf { it.isHeld }?.release()
-        wakeLock = null
-        super.onDestroy()
     }
 
     private fun createNotificationChannel() {

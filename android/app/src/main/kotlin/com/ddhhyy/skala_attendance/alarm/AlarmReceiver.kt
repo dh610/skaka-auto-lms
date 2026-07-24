@@ -8,7 +8,8 @@ import androidx.core.content.ContextCompat
 class AlarmReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val occurrenceKey = intent.getStringExtra(AlarmContract.extraOccurrenceKey) ?: return
-        if (AlarmStore.find(context, occurrenceKey) == null) return
+        val alarm = AlarmStore.find(context, occurrenceKey) ?: return
+        SnoozeNotification.cancel(context, alarm)
         ContextCompat.startForegroundService(
             context,
             Intent(context, AlarmRingingService::class.java)

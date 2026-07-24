@@ -99,7 +99,6 @@ void main() {
       gradualVolumeEnabled: true,
       snoozeMinutes: 10,
       maximumSnoozeCount: null,
-      volumeButtonAction: AlarmVolumeButtonAction.dismiss,
     );
     const schedule = AttendanceSchedule(
       id: 'alarm-settings',

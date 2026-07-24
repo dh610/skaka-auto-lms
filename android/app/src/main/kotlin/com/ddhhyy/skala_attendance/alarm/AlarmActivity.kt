@@ -11,6 +11,7 @@ import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.Space
 import android.widget.TextView
+import android.widget.Toast
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -42,11 +43,15 @@ class AlarmActivity : Activity() {
         if (keyCode == KeyEvent.KEYCODE_VOLUME_UP ||
             keyCode == KeyEvent.KEYCODE_VOLUME_DOWN
         ) {
-            val current = alarm ?: return true
-            when (current.volumeButtonAction) {
-                "snooze" -> perform(AlarmContract.actionSnooze)
-                "dismiss" -> perform(AlarmContract.actionDismiss)
-            }
+            startService(
+                android.content.Intent(this, AlarmRingingService::class.java)
+                    .setAction(AlarmContract.actionSilence),
+            )
+            Toast.makeText(
+                this,
+                "알람음과 진동을 껐습니다.",
+                Toast.LENGTH_SHORT,
+            ).show()
             return true
         }
         return super.onKeyDown(keyCode, event)

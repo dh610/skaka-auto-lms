@@ -35,7 +35,6 @@ class AlarmOccurrence {
     'gradualVolumeEnabled': schedule.alarmSettings.gradualVolumeEnabled,
     'snoozeMinutes': schedule.alarmSettings.snoozeMinutes,
     'maximumSnoozeCount': schedule.alarmSettings.maximumSnoozeCount,
-    'volumeButtonAction': schedule.alarmSettings.volumeButtonAction.name,
     'snoozeCount': snoozeCount,
     'attendancePayload': attendancePayload,
   };

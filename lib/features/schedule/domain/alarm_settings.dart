@@ -1,13 +1,3 @@
-enum AlarmVolumeButtonAction {
-  snooze('다시 알림'),
-  dismiss('끄기'),
-  none('아무 동작 안 함');
-
-  const AlarmVolumeButtonAction(this.label);
-
-  final String label;
-}
-
 class AlarmSound {
   const AlarmSound({required this.uri, required this.label});
 
@@ -47,7 +37,6 @@ class AlarmSettings {
     this.gradualVolumeEnabled = false,
     this.snoozeMinutes = 5,
     this.maximumSnoozeCount = 3,
-    this.volumeButtonAction = AlarmVolumeButtonAction.snooze,
   }) : assert(volumePercent >= 0 && volumePercent <= 100),
        assert(
          snoozeMinutes == 1 ||
@@ -67,14 +56,12 @@ class AlarmSettings {
   final bool gradualVolumeEnabled;
   final int snoozeMinutes;
   final int? maximumSnoozeCount;
-  final AlarmVolumeButtonAction volumeButtonAction;
 
   factory AlarmSettings.fromJson(Map<String, dynamic>? json) {
     if (json == null) return const AlarmSettings();
     final volume = json['volumePercent'];
     final snooze = json['snoozeMinutes'];
     final maximum = json['maximumSnoozeCount'];
-    final buttonName = json['volumeButtonAction'];
     final sound = switch (json['sound']) {
       final Map<String, dynamic> value => value,
       _ => null,
@@ -94,12 +81,6 @@ class AlarmSettings {
                 ? maximum as int?
                 : 3
           : 3,
-      volumeButtonAction: buttonName is String
-          ? AlarmVolumeButtonAction.values.firstWhere(
-              (value) => value.name == buttonName,
-              orElse: () => AlarmVolumeButtonAction.snooze,
-            )
-          : AlarmVolumeButtonAction.snooze,
     );
   }
 
@@ -111,7 +92,6 @@ class AlarmSettings {
     int? snoozeMinutes,
     int? maximumSnoozeCount,
     bool clearMaximumSnoozeCount = false,
-    AlarmVolumeButtonAction? volumeButtonAction,
   }) {
     return AlarmSettings(
       sound: sound ?? this.sound,
@@ -122,7 +102,6 @@ class AlarmSettings {
       maximumSnoozeCount: clearMaximumSnoozeCount
           ? null
           : maximumSnoozeCount ?? this.maximumSnoozeCount,
-      volumeButtonAction: volumeButtonAction ?? this.volumeButtonAction,
     );
   }
 
@@ -133,7 +112,6 @@ class AlarmSettings {
     'gradualVolumeEnabled': gradualVolumeEnabled,
     'snoozeMinutes': snoozeMinutes,
     'maximumSnoozeCount': maximumSnoozeCount,
-    'volumeButtonAction': volumeButtonAction.name,
   };
 
   @override
@@ -144,8 +122,7 @@ class AlarmSettings {
       other.vibrationEnabled == vibrationEnabled &&
       other.gradualVolumeEnabled == gradualVolumeEnabled &&
       other.snoozeMinutes == snoozeMinutes &&
-      other.maximumSnoozeCount == maximumSnoozeCount &&
-      other.volumeButtonAction == volumeButtonAction;
+      other.maximumSnoozeCount == maximumSnoozeCount;
 
   @override
   int get hashCode => Object.hash(
@@ -155,6 +132,5 @@ class AlarmSettings {
     gradualVolumeEnabled,
     snoozeMinutes,
     maximumSnoozeCount,
-    volumeButtonAction,
   );
 }

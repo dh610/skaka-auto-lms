@@ -202,28 +202,6 @@ class _ScheduleEditScreenState extends State<ScheduleEditScreen> {
     });
   }
 
-  Future<void> _pickVolumeButtonAction() async {
-    final selected = await showDialog<AlarmVolumeButtonAction>(
-      context: context,
-      builder: (dialogContext) => SimpleDialog(
-        title: const Text('볼륨 버튼 동작'),
-        children: AlarmVolumeButtonAction.values
-            .map(
-              (action) => SimpleDialogOption(
-                onPressed: () => Navigator.of(dialogContext).pop(action),
-                child: Text(action.label),
-              ),
-            )
-            .toList(),
-      ),
-    );
-    if (selected != null && mounted) {
-      setState(() {
-        _alarmSettings = _alarmSettings.copyWith(volumeButtonAction: selected);
-      });
-    }
-  }
-
   void _showExcludedHolidays() {
     final holidays = TrainingCalendar.holidaysForWeekdays(_weekdays);
     showModalBottomSheet<void>(
@@ -530,12 +508,6 @@ class _ScheduleEditScreenState extends State<ScheduleEditScreen> {
                     ),
                     trailing: const Icon(Icons.chevron_right),
                     onTap: _pickSnooze,
-                  ),
-                  ListTile(
-                    title: const Text('볼륨 버튼'),
-                    subtitle: Text(_alarmSettings.volumeButtonAction.label),
-                    trailing: const Icon(Icons.chevron_right),
-                    onTap: _pickVolumeButtonAction,
                   ),
                 ],
               ),

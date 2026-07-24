@@ -37,6 +37,7 @@ void main() {
     expect(find.text('70%'), findsOneWidget);
     expect(find.text('10분 · 제한 없음'), findsOneWidget);
     expect(find.text('다시 알림'), findsWidgets);
+    expect(find.text('볼륨 버튼'), findsNothing);
 
     await tester.tap(
       find.ancestor(

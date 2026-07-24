@@ -6,6 +6,7 @@ object AlarmContract {
     const val actionDismiss = "com.ddhhyy.skala_attendance.alarm.DISMISS"
     const val actionSnooze = "com.ddhhyy.skala_attendance.alarm.SNOOZE"
     const val actionOpenAttendance = "com.ddhhyy.skala_attendance.alarm.OPEN_ATTENDANCE"
+    const val actionSilence = "com.ddhhyy.skala_attendance.alarm.SILENCE"
     const val notificationId = 7401
 }
 
