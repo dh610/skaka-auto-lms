@@ -96,14 +96,21 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     _scheduleDailyExpiry();
     widget.scheduleController.addListener(_handleNotificationTap);
     _linkSubscription = (widget.appLinkStream ?? AppLinks().uriLinkStream)
-        .listen(
-          _controller.handleCallback,
-          onError: _controller.reportLinkError,
-        );
+        .listen(_handleAppLink, onError: _handleAppLinkError);
     widget.notificationScheduler.tapPayload.addListener(_handleNotificationTap);
     WidgetsBinding.instance.addPostFrameCallback(
       (_) => _handleNotificationTap(),
     );
+  }
+
+  Future<void> _handleAppLink(Uri uri) async {
+    _invalidateAuthenticationContinuation();
+    await _controller.handleCallback(uri);
+  }
+
+  void _handleAppLinkError(Object error, [StackTrace? stackTrace]) {
+    _invalidateAuthenticationContinuation();
+    _controller.reportLinkError(error);
   }
 
   void _handleNotificationTap() {
@@ -215,17 +222,14 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       await _callbackLinkSettings.open();
     } catch (error) {
       if (!_authenticationContinuationIsCurrent(continuationRevision)) return;
-      _controller.reportLinkError(error);
-      _finishAuthenticationContinuation(continuationRevision);
+      _handleAppLinkError(error);
     }
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      if (_controller.invalidateExpiredDailyState()) {
-        _invalidateAuthenticationContinuation();
-      }
+      _invalidateExpiredDailyState();
       unawaited(_resumeAuthenticationAfterSettings());
     }
   }
@@ -255,8 +259,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       )) {
         return;
       }
-      _controller.reportLinkError(error);
-      _finishAuthenticationContinuation(continuationRevision);
+      _handleAppLinkError(error);
     }
   }
 
@@ -309,6 +312,11 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       _authenticationFlowLocked = false;
     }
   }
+
+  bool _invalidateExpiredDailyState() =>
+      _controller.invalidateExpiredDailyState(
+        beforeInvalidation: _invalidateAuthenticationContinuation,
+      );
 
   Future<void> _retry() async {
     if (_attendanceInteractionLocked) return;
@@ -447,7 +455,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       remaining > Duration.zero ? remaining : Duration.zero,
       () {
         if (!mounted) return;
-        _controller.invalidateExpiredDailyState();
+        _invalidateExpiredDailyState();
         _scheduleDailyExpiry();
       },
     );
@@ -512,6 +520,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
               ],
             ),
     );
+    if (!mounted) return;
     if (confirmed == true) {
       await _controller.performAction(
         action,

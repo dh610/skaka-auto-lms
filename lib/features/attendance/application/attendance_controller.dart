@@ -582,13 +582,14 @@ class AttendanceController extends ChangeNotifier {
     }
   }
 
-  bool invalidateExpiredDailyState() {
+  bool invalidateExpiredDailyState({VoidCallback? beforeInvalidation}) {
     final snapshotDate = _snapshotKoreaDate;
     final koreaDate = _koreaDate(_now());
     if ((snapshotDate == null || snapshotDate == koreaDate) &&
         _dailyStatus.koreaDate == koreaDate) {
       return false;
     }
+    beforeInvalidation?.call();
     _expireDailySession();
     return true;
   }

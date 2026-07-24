@@ -467,6 +467,166 @@ void main() {
   });
 
   testWidgets(
+    'tokenless callback unlocks a gated browser launch and ignores its late completion',
+    (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      const profile = UserProfile(
+        name: '윤동현',
+        region: CampusRegion.pangyo5f,
+        classNumber: 8,
+      );
+      final schedules = ScheduleController(ScheduleStore());
+      await schedules.load();
+      final links = StreamController<Uri>();
+      final authenticationGate = Completer<void>();
+      final gateway = _WidgetTestAttendanceGateway(
+        authenticationGate: authenticationGate,
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: AttendanceScreen(
+            profile: profile,
+            scheduleController: schedules,
+            notificationScheduler: _NoOpNotificationScheduler(),
+            onEditProfile: () async {},
+            gateway: gateway,
+            appLinkStream: links.stream,
+            isAndroid: true,
+            callbackLinkSettings: _FakeCallbackLinkSettings(enabled: true),
+            now: () => DateTime.utc(2026, 7, 24, 3),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('출결 상태 새로고침'));
+      await tester.pump();
+      await tester.pump();
+
+      expect(gateway.authenticationCallCount, 1);
+      links.add(Uri.parse('https://att.skala-ai.com/'));
+      await tester.pump();
+      await tester.pump();
+
+      expect(
+        tester
+            .widget<IconButton>(
+              find
+                  .ancestor(
+                    of: find.byTooltip('출결 상태 새로고침'),
+                    matching: find.byType(IconButton),
+                  )
+                  .first,
+            )
+            .onPressed,
+        isNotNull,
+      );
+
+      authenticationGate.complete();
+      await tester.pump();
+      await tester.pump();
+
+      expect(gateway.authenticationCallCount, 1);
+      expect(
+        tester
+            .widget<IconButton>(
+              find
+                  .ancestor(
+                    of: find.byTooltip('출결 상태 새로고침'),
+                    matching: find.byType(IconButton),
+                  )
+                  .first,
+            )
+            .onPressed,
+        isNotNull,
+      );
+
+      await links.close();
+      schedules.dispose();
+    },
+  );
+
+  testWidgets(
+    'link error unlocks a gated browser launch and ignores its late completion',
+    (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      const profile = UserProfile(
+        name: '윤동현',
+        region: CampusRegion.pangyo5f,
+        classNumber: 8,
+      );
+      final schedules = ScheduleController(ScheduleStore());
+      await schedules.load();
+      final links = StreamController<Uri>();
+      final authenticationGate = Completer<void>();
+      final gateway = _WidgetTestAttendanceGateway(
+        authenticationGate: authenticationGate,
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: AttendanceScreen(
+            profile: profile,
+            scheduleController: schedules,
+            notificationScheduler: _NoOpNotificationScheduler(),
+            onEditProfile: () async {},
+            gateway: gateway,
+            appLinkStream: links.stream,
+            isAndroid: true,
+            callbackLinkSettings: _FakeCallbackLinkSettings(enabled: true),
+            now: () => DateTime.utc(2026, 7, 24, 3),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('출결 상태 새로고침'));
+      await tester.pump();
+      await tester.pump();
+
+      expect(gateway.authenticationCallCount, 1);
+      links.addError(StateError('link failed'));
+      await tester.pump();
+      await tester.pump();
+
+      expect(
+        tester
+            .widget<IconButton>(
+              find
+                  .ancestor(
+                    of: find.byTooltip('출결 상태 새로고침'),
+                    matching: find.byType(IconButton),
+                  )
+                  .first,
+            )
+            .onPressed,
+        isNotNull,
+      );
+
+      authenticationGate.complete();
+      await tester.pump();
+      await tester.pump();
+
+      expect(gateway.authenticationCallCount, 1);
+      expect(
+        tester
+            .widget<IconButton>(
+              find
+                  .ancestor(
+                    of: find.byTooltip('출결 상태 새로고침'),
+                    matching: find.byType(IconButton),
+                  )
+                  .first,
+            )
+            .onPressed,
+        isNotNull,
+      );
+
+      await links.close();
+      schedules.dispose();
+    },
+  );
+
+  testWidgets(
     'authentication setup lookup locks controls and notification intent',
     (tester) async {
       SharedPreferences.setMockInitialValues({});
@@ -984,6 +1144,70 @@ void main() {
     await links.close();
     schedules.dispose();
   });
+
+  testWidgets(
+    'Korean midnight invalidates a gated authentication setup before it can launch',
+    (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      const profile = UserProfile(
+        name: '윤동현',
+        region: CampusRegion.pangyo5f,
+        classNumber: 8,
+      );
+      final schedules = ScheduleController(ScheduleStore());
+      await schedules.load();
+      var now = DateTime.utc(2026, 7, 24, 14, 59, 59);
+      final settingsGate = Completer<bool>();
+      final linkSettings = _FakeCallbackLinkSettings(enabled: true)
+        ..isEnabledGate = settingsGate;
+      final gateway = _WidgetTestAttendanceGateway();
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: AttendanceScreen(
+            profile: profile,
+            scheduleController: schedules,
+            notificationScheduler: _NoOpNotificationScheduler(),
+            onEditProfile: () async {},
+            gateway: gateway,
+            appLinkStream: const Stream.empty(),
+            isAndroid: true,
+            callbackLinkSettings: linkSettings,
+            now: () => now,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('출결 상태 새로고침'));
+      await tester.pump();
+
+      now = DateTime.utc(2026, 7, 24, 15, 0, 1);
+      await tester.pump(const Duration(seconds: 2));
+      await tester.pump();
+
+      expect(
+        tester
+            .widget<IconButton>(
+              find
+                  .ancestor(
+                    of: find.byTooltip('출결 상태 새로고침'),
+                    matching: find.byType(IconButton),
+                  )
+                  .first,
+            )
+            .onPressed,
+        isNotNull,
+      );
+      expect(find.text('오늘 출결 · 7월 25일(토)'), findsOneWidget);
+
+      settingsGate.complete(true);
+      await tester.pump();
+      await tester.pump();
+
+      expect(gateway.authenticationCallCount, 0);
+      schedules.dispose();
+    },
+  );
 
   testWidgets(
     'confirmed attendance action highlights its tile and shows notice',
@@ -2107,6 +2331,74 @@ void main() {
     schedules.dispose();
   });
 
+  testWidgets('disposing an open confirmation does not touch its controller', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    const profile = UserProfile(
+      name: '윤동현',
+      region: CampusRegion.pangyo5f,
+      classNumber: 8,
+    );
+    final schedules = ScheduleController(ScheduleStore());
+    await schedules.load();
+    final links = StreamController<Uri>();
+    final showScreen = ValueNotifier(true);
+    addTearDown(showScreen.dispose);
+    final gateway = _WidgetTestAttendanceGateway(
+      snapshot: const AttendanceSnapshot(
+        networkAllowed: true,
+        checkInTime: '09:00',
+      ),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ValueListenableBuilder<bool>(
+          valueListenable: showScreen,
+          builder: (context, visible, _) => visible
+              ? AttendanceScreen(
+                  profile: profile,
+                  scheduleController: schedules,
+                  notificationScheduler: _NoOpNotificationScheduler(),
+                  onEditProfile: () async {},
+                  gateway: gateway,
+                  appLinkStream: links.stream,
+                  isAndroid: true,
+                  callbackLinkSettings: _FakeCallbackLinkSettings(
+                    enabled: true,
+                  ),
+                  now: () => DateTime.utc(2026, 7, 24, 3),
+                )
+              : const SizedBox.shrink(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.widgetWithText(FilledButton, '외출'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, '외출'));
+    await tester.pump();
+    await tester.pump();
+    links.add(Uri.parse('https://att.skala-ai.com?token=test-token'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('외출 처리'), findsOneWidget);
+    await links.close();
+    showScreen.value = false;
+    await tester.pump();
+    expect(find.text('외출 처리'), findsOneWidget);
+    await tester.tap(find.text('취소'));
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(gateway.recordedAction, isNull);
+
+    schedules.dispose();
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+  });
+
   testWidgets('initial setup requests notification permissions', (
     tester,
   ) async {
@@ -2390,11 +2682,13 @@ class _WidgetTestAttendanceGateway implements AttendanceGateway {
     this.snapshot = const AttendanceSnapshot(networkAllowed: true),
     this.snapshotAfterAction,
     this.fetchGate,
+    this.authenticationGate,
   });
 
   AttendanceSnapshot snapshot;
   final AttendanceSnapshot? snapshotAfterAction;
   final Completer<void>? fetchGate;
+  final Completer<void>? authenticationGate;
   UserProfile? authenticationProfile;
   AttendanceAction? recordedAction;
   int authenticationCallCount = 0;
@@ -2404,6 +2698,7 @@ class _WidgetTestAttendanceGateway implements AttendanceGateway {
   Future<void> startBrowserAuthentication(UserProfile profile) async {
     authenticationCallCount++;
     authenticationProfile = profile;
+    await authenticationGate?.future;
   }
 
   @override
