@@ -15,11 +15,14 @@ class AttendanceController extends ChangeNotifier {
     this._gateway, {
     bool? isAndroid,
     this.completionStore,
-  }) : _isAndroid = isAndroid ?? Platform.isAndroid;
+    DateTime Function()? now,
+  }) : _isAndroid = isAndroid ?? Platform.isAndroid,
+       _now = now ?? DateTime.now;
 
   UserProfile _profile;
   final AttendanceGateway _gateway;
   final bool _isAndroid;
+  final DateTime Function() _now;
   final AttendanceCompletionStore? completionStore;
 
   bool _busy = false;
@@ -32,6 +35,7 @@ class AttendanceController extends ChangeNotifier {
   int _completionRevision = 0;
   AttendanceAction? _lastCompletedAction;
   AttendanceAction? _pendingActionConfirmation;
+  DateTime? _snapshotKoreaDate;
   Map<String, DateTime> _completedOccurrences = {};
   Map<String, DateTime> _skippedOccurrences = {};
 
@@ -115,6 +119,7 @@ class AttendanceController extends ChangeNotifier {
     _token = null;
     _lastCompletedAction = null;
     _pendingActionConfirmation = null;
+    _snapshotKoreaDate = null;
     _completedOccurrences = {};
     _skippedOccurrences = {};
     if (completionStore case final store?) unawaited(store.clear());
@@ -132,6 +137,7 @@ class AttendanceController extends ChangeNotifier {
     _token = null;
     _lastCompletedAction = null;
     _pendingActionConfirmation = null;
+    _snapshotKoreaDate = null;
     _setState(
       busy: true,
       clearSnapshot: true,
@@ -193,6 +199,7 @@ class AttendanceController extends ChangeNotifier {
   }
 
   Future<void> performAction(AttendanceAction action) async {
+    if (invalidateExpiredDailyState()) return;
     final token = _token;
     final current = _snapshot;
     if (token == null || current == null) {
@@ -217,12 +224,17 @@ class AttendanceController extends ChangeNotifier {
         completedAction: action,
       );
     } catch (error) {
+      final definitelyRejected = error is AttendanceActionRejectedException;
+      if (definitelyRejected) _pendingActionConfirmation = null;
       _setState(
-        message: _friendlyError(
-          error,
-          operation: '${action.label} 처리 결과를 확인하지 못했습니다.',
-          suffix: '중복 전송하지 말고 먼저 현재 출결 상태를 다시 확인해주세요.',
-        ),
+        message: definitelyRejected
+            ? '${action.label} 요청이 서버에서 거부되었습니다. '
+                  '현재 출결 상태를 다시 확인해주세요.'
+            : _friendlyError(
+                error,
+                operation: '${action.label} 처리 결과를 확인하지 못했습니다.',
+                suffix: '중복 전송하지 말고 먼저 현재 출결 상태를 다시 확인해주세요.',
+              ),
         hasError: true,
         recovery: _AttendanceRecovery.refresh,
       );
@@ -259,6 +271,7 @@ class AttendanceController extends ChangeNotifier {
   }
 
   Future<void> refreshStatus() async {
+    if (invalidateExpiredDailyState()) return;
     final token = _token;
     if (token == null) {
       await startAuthentication();
@@ -294,6 +307,7 @@ class AttendanceController extends ChangeNotifier {
     required String message,
     AttendanceAction? completedAction,
   }) {
+    _snapshotKoreaDate = _koreaDate(_now());
     _statusRevision++;
     if (completedAction != null) {
       _completionRevision++;
@@ -301,6 +315,28 @@ class AttendanceController extends ChangeNotifier {
       _pendingActionConfirmation = null;
     }
     _setState(snapshot: snapshot, message: message, clearRecovery: true);
+  }
+
+  bool invalidateExpiredDailyState() {
+    final snapshotDate = _snapshotKoreaDate;
+    if (snapshotDate == null || snapshotDate == _koreaDate(_now())) {
+      return false;
+    }
+    _token = null;
+    _snapshotKoreaDate = null;
+    _lastCompletedAction = null;
+    _pendingActionConfirmation = null;
+    _setState(
+      clearSnapshot: true,
+      message: '날짜가 바뀌어 오늘 출결 정보를 다시 확인해야 합니다.',
+      recovery: _AttendanceRecovery.authenticate,
+    );
+    return true;
+  }
+
+  DateTime _koreaDate(DateTime value) {
+    final koreaTime = value.toUtc().add(const Duration(hours: 9));
+    return DateTime.utc(koreaTime.year, koreaTime.month, koreaTime.day);
   }
 
   void _setState({

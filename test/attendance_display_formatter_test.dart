@@ -17,4 +17,13 @@ void main() {
     expect(formatAttendanceTime(null), '없음');
     expect(formatAttendanceTime('확인 중'), '확인 중');
   });
+
+  test('preserves malformed or unsupported date and time values', () {
+    expect(formatAttendanceTime('09:01:99'), '09:01:99');
+    expect(formatAttendanceTime('2026-07-24'), '2026-07-24');
+    expect(
+      formatAttendanceTime('2026-07-24T00:01:99Z'),
+      '2026-07-24T00:01:99Z',
+    );
+  });
 }

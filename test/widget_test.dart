@@ -275,7 +275,7 @@ void main() {
           onEditProfile: () async {},
           gateway: _WidgetTestAttendanceGateway(
             snapshot: const AttendanceSnapshot(
-              networkAllowed: true,
+              networkAllowed: false,
               checkInTime: '2026-07-24T00:01:23.000Z',
               checkOutTime: '2026-07-24T09:02:59.000Z',
             ),
@@ -297,11 +297,57 @@ void main() {
     expect(find.text('18:02'), findsOneWidget);
     expect(find.text('방금 업데이트됨'), findsOneWidget);
     expect(find.textContaining('네트워크 허용:'), findsNothing);
+    expect(find.text('현재 네트워크에서는 출결 동작을 전송할 수 없습니다.'), findsOneWidget);
     expect(find.textContaining('2026-07-24T'), findsNothing);
     expect(
       tester.getTopLeft(find.text('오늘 출결 · 7월 24일(금)')).dy,
       lessThan(tester.getTopLeft(find.text('오늘 예정된 동작')).dy),
     );
+
+    await links.close();
+    schedules.dispose();
+  });
+
+  testWidgets('attendance status expires at the next Korean date', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    const profile = UserProfile(
+      name: '윤동현',
+      region: CampusRegion.pangyo5f,
+      classNumber: 8,
+    );
+    final schedules = ScheduleController(ScheduleStore());
+    await schedules.load();
+    final links = StreamController<Uri>();
+    var now = DateTime.utc(2026, 7, 24, 14, 59, 59);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: AttendanceScreen(
+          profile: profile,
+          scheduleController: schedules,
+          notificationScheduler: _NoOpNotificationScheduler(),
+          onEditProfile: () async {},
+          gateway: _WidgetTestAttendanceGateway(),
+          appLinkStream: links.stream,
+          isAndroid: true,
+          callbackLinkSettings: _FakeCallbackLinkSettings(enabled: true),
+          now: () => now,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    links.add(Uri.parse('https://att.skala-ai.com?token=test-token'));
+    await tester.pumpAndSettle();
+    expect(find.text('오늘 출결 · 7월 24일(금)'), findsOneWidget);
+
+    now = DateTime.utc(2026, 7, 24, 15, 0, 1);
+    await tester.pump(const Duration(seconds: 2));
+    await tester.pump();
+
+    expect(find.text('오늘 출결 · 7월 24일(금)'), findsNothing);
+    expect(find.text('출결 정보 확인하기'), findsOneWidget);
 
     await links.close();
     schedules.dispose();

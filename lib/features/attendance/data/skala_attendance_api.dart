@@ -149,7 +149,7 @@ class SkalaAttendanceApi implements AttendanceGateway {
         )
         .timeout(const Duration(seconds: 10));
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw StateError(_serverError(response));
+      throw AttendanceActionRejectedException(_serverError(response));
     }
   }
 

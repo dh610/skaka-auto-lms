@@ -11,21 +11,44 @@ String formatAttendanceTime(String? value) {
   if (value == null || value.trim().isEmpty) return '없음';
   final trimmed = value.trim();
   final plainTime = RegExp(
-    r'^(\d{1,2}):(\d{2})(?::\d{2}(?:\.\d+)?)?$',
+    r'^(\d{1,2}):(\d{2})(?::(\d{2})(?:\.\d+)?)?$',
   ).firstMatch(trimmed);
   if (plainTime != null) {
     final hour = int.parse(plainTime.group(1)!);
     final minute = int.parse(plainTime.group(2)!);
-    if (hour < 24 && minute < 60) {
+    final second = int.tryParse(plainTime.group(3) ?? '0') ?? 0;
+    if (hour < 24 && minute < 60 && second < 60) {
       return _formatClock(hour, minute);
     }
     return trimmed;
   }
 
+  final isoTimestamp = RegExp(
+    r'^(\d{4})-(\d{2})-(\d{2})T'
+    r'(\d{2}):(\d{2})(?::(\d{2})(?:\.\d+)?)?'
+    r'(?:Z|[+-]\d{2}:?\d{2})?$',
+  ).firstMatch(trimmed);
+  if (isoTimestamp == null || !_hasValidIsoFields(isoTimestamp)) {
+    return trimmed;
+  }
   final parsed = DateTime.tryParse(trimmed);
   if (parsed == null) return trimmed;
   final koreaTime = parsed.isUtc ? parsed.add(_koreaOffset) : parsed;
   return _formatClock(koreaTime.hour, koreaTime.minute);
+}
+
+bool _hasValidIsoFields(RegExpMatch match) {
+  final year = int.parse(match.group(1)!);
+  final month = int.parse(match.group(2)!);
+  final day = int.parse(match.group(3)!);
+  final hour = int.parse(match.group(4)!);
+  final minute = int.parse(match.group(5)!);
+  final second = int.tryParse(match.group(6) ?? '0') ?? 0;
+  if (month < 1 || month > 12 || hour >= 24 || minute >= 60 || second >= 60) {
+    return false;
+  }
+  final lastDay = DateTime.utc(year, month + 1, 0).day;
+  return day >= 1 && day <= lastDay;
 }
 
 String _formatClock(int hour, int minute) {

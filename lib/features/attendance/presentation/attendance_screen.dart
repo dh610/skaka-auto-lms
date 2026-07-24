@@ -66,6 +66,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
   AttendanceAction? _highlightedAction;
   Timer? _recentlyUpdatedTimer;
   Timer? _actionHighlightTimer;
+  Timer? _dailyExpiryTimer;
 
   @override
   void initState() {
@@ -79,6 +80,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       widget.gateway ?? SkalaAttendanceApi(),
       isAndroid: widget.isAndroid,
       completionStore: AttendanceCompletionStore(),
+      now: widget.now,
     );
     unawaited(_controller.loadCompletionHistory());
     _controller.addListener(_handleControllerChange);
@@ -165,6 +167,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
+      _controller.invalidateExpiredDailyState();
       unawaited(_resumeAuthenticationAfterSettings());
     }
   }
@@ -261,6 +264,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       _highlightedAction = null;
       _recentlyUpdatedTimer?.cancel();
       _actionHighlightTimer?.cancel();
+      _dailyExpiryTimer?.cancel();
     }
 
     if (_controller.statusRevision > _handledStatusRevision) {
@@ -272,6 +276,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
         if (!mounted || revision != _handledStatusRevision) return;
         setState(() => _showRecentlyUpdated = false);
       });
+      _scheduleDailyExpiry();
     }
 
     if (_controller.completionRevision <= _handledCompletionRevision) return;
@@ -296,6 +301,28 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     });
   }
 
+  void _scheduleDailyExpiry() {
+    _dailyExpiryTimer?.cancel();
+    final utcNow = (widget.now ?? DateTime.now)().toUtc();
+    final koreaNow = utcNow.add(const Duration(hours: 9));
+    final nextKoreaDate = DateTime.utc(
+      koreaNow.year,
+      koreaNow.month,
+      koreaNow.day + 1,
+    );
+    final nextKoreaMidnightUtc = nextKoreaDate.subtract(
+      const Duration(hours: 9),
+    );
+    final remaining = nextKoreaMidnightUtc.difference(utcNow);
+    _dailyExpiryTimer = Timer(
+      remaining > Duration.zero ? remaining : Duration.zero,
+      () {
+        if (!mounted) return;
+        _controller.invalidateExpiredDailyState();
+      },
+    );
+  }
+
   @override
   void didUpdateWidget(covariant AttendanceScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
@@ -315,6 +342,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     _controller.removeListener(_handleControllerChange);
     _recentlyUpdatedTimer?.cancel();
     _actionHighlightTimer?.cancel();
+    _dailyExpiryTimer?.cancel();
     _controller.dispose();
     super.dispose();
   }
