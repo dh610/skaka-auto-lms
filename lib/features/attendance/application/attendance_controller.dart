@@ -339,7 +339,9 @@ class AttendanceController extends ChangeNotifier {
     _awaitingAuthenticationCallback = false;
     final token = uri.queryParameters['token'];
     if (token == null || token.isEmpty) {
+      _sessionRevision++;
       _setState(
+        busy: false,
         message: '인증 정보가 전달되지 않았습니다. Google 인증을 다시 진행해주세요.',
         hasError: true,
         recovery: _AttendanceRecovery.authenticate,
@@ -465,8 +467,10 @@ class AttendanceController extends ChangeNotifier {
   }
 
   void reportLinkError(Object error) {
+    _sessionRevision++;
     _awaitingAuthenticationCallback = false;
     _setState(
+      busy: false,
       message: '인증 결과를 앱으로 가져오지 못했습니다. Google 인증을 다시 진행해주세요.',
       hasError: true,
       recovery: _AttendanceRecovery.authenticate,

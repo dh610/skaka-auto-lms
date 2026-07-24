@@ -63,6 +63,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
   late final CallbackLinkSettings _callbackLinkSettings;
   int _authenticationContinuationRevision = 0;
   int? _pendingSettingsContinuation;
+  bool _authenticationFlowLocked = false;
   bool _handlingNotificationTap = false;
   bool _presentingReadyAction = false;
   int _handledReadyActionRevision = 0;
@@ -110,8 +111,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     if (!mounted ||
         payload == null ||
         widget.scheduleController.loading ||
-        _controller.busy ||
-        _controller.awaitingAuthenticationCallback ||
+        _attendanceInteractionLocked ||
         _handlingNotificationTap) {
       return;
     }
@@ -144,6 +144,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     String? scheduleId,
     DateTime? scheduledAt,
   }) async {
+    if (_attendanceInteractionLocked) return;
     final result = await _controller.requestAction(
       action,
       scheduleId: scheduleId,
@@ -155,6 +156,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
   }
 
   Future<void> _refreshStatus() async {
+    if (_attendanceInteractionLocked) return;
     final result = await _controller.requestStatusRefresh();
     if (result == AttendanceRequestResult.authenticationRequired) {
       await _requestAuthentication();
@@ -162,51 +164,60 @@ class _AttendanceScreenState extends State<AttendanceScreen>
   }
 
   Future<void> _requestAuthentication() async {
+    if (_authenticationFlowLocked ||
+        _controller.busy ||
+        _controller.awaitingAuthenticationCallback ||
+        _controller.readyAction != null ||
+        _presentingReadyAction) {
+      return;
+    }
     final continuationRevision = ++_authenticationContinuationRevision;
     _pendingSettingsContinuation = null;
-    final linkEnabled =
-        widget.isAndroid == false || await _callbackLinkSettings.isEnabled();
-    if (!mounted ||
-        continuationRevision != _authenticationContinuationRevision) {
-      return;
-    }
-    if (linkEnabled) {
-      await _controller.startAuthentication();
-      return;
-    }
-    if (!mounted) return;
-    final openSettings = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('앱 복귀 설정이 필요합니다'),
-        content: const Text(
-          'Google 인증이 끝난 뒤 이 앱으로 자동 복귀하려면 '
-          '지원되는 링크 열기를 허용해야 합니다.\n\n'
-          '설정 화면에서 지원되는 링크 열기를 활성화해 주세요. '
-          '이 설정은 최초 한 번만 필요합니다.',
+    _setAuthenticationFlowLocked(true);
+    try {
+      final linkEnabled =
+          widget.isAndroid == false || await _callbackLinkSettings.isEnabled();
+      if (!_authenticationContinuationIsCurrent(continuationRevision)) return;
+      if (!mounted) return;
+      if (linkEnabled) {
+        await _startAuthenticationContinuation(continuationRevision);
+        return;
+      }
+      final openSettings = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('앱 복귀 설정이 필요합니다'),
+          content: const Text(
+            'Google 인증이 끝난 뒤 이 앱으로 자동 복귀하려면 '
+            '지원되는 링크 열기를 허용해야 합니다.\n\n'
+            '설정 화면에서 지원되는 링크 열기를 활성화해 주세요. '
+            '이 설정은 최초 한 번만 필요합니다.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('취소'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('링크 설정 열기'),
+            ),
+          ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('취소'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('링크 설정 열기'),
-          ),
-        ],
-      ),
-    );
-    if (!mounted ||
-        continuationRevision != _authenticationContinuationRevision) {
-      return;
+      );
+      if (!_authenticationContinuationIsCurrent(continuationRevision)) return;
+      if (openSettings != true) {
+        _controller.cancelPendingRequest();
+        _finishAuthenticationContinuation(continuationRevision);
+        return;
+      }
+      _pendingSettingsContinuation = continuationRevision;
+      await _callbackLinkSettings.open();
+    } catch (error) {
+      if (!_authenticationContinuationIsCurrent(continuationRevision)) return;
+      _controller.reportLinkError(error);
+      _finishAuthenticationContinuation(continuationRevision);
     }
-    if (openSettings != true) {
-      _controller.cancelPendingRequest();
-      return;
-    }
-    _pendingSettingsContinuation = continuationRevision;
-    await _callbackLinkSettings.open();
   }
 
   @override
@@ -222,23 +233,85 @@ class _AttendanceScreenState extends State<AttendanceScreen>
   Future<void> _resumeAuthenticationAfterSettings() async {
     final continuationRevision = _pendingSettingsContinuation;
     if (continuationRevision == null) return;
-    final linkEnabled = await _callbackLinkSettings.isEnabled();
-    if (!mounted ||
-        _pendingSettingsContinuation != continuationRevision ||
-        continuationRevision != _authenticationContinuationRevision ||
-        !linkEnabled) {
-      return;
+    try {
+      final linkEnabled = await _callbackLinkSettings.isEnabled();
+      if (!_authenticationContinuationIsCurrent(
+        continuationRevision,
+        requireSettingsContinuation: true,
+      )) {
+        return;
+      }
+      if (!linkEnabled) {
+        _controller.cancelPendingRequest();
+        _finishAuthenticationContinuation(continuationRevision);
+        return;
+      }
+      _pendingSettingsContinuation = null;
+      await _startAuthenticationContinuation(continuationRevision);
+    } catch (error) {
+      if (!_authenticationContinuationIsCurrent(
+        continuationRevision,
+        requireSettingsContinuation: true,
+      )) {
+        return;
+      }
+      _controller.reportLinkError(error);
+      _finishAuthenticationContinuation(continuationRevision);
     }
-    _pendingSettingsContinuation = null;
-    await _controller.startAuthentication();
   }
 
-  void _invalidateAuthenticationContinuation() {
+  Future<void> _startAuthenticationContinuation(int revision) async {
+    if (!_authenticationContinuationIsCurrent(revision)) return;
+    await _controller.startAuthentication();
+    _finishAuthenticationContinuation(revision);
+  }
+
+  bool _authenticationContinuationIsCurrent(
+    int revision, {
+    bool requireSettingsContinuation = false,
+  }) {
+    return mounted &&
+        revision == _authenticationContinuationRevision &&
+        (!requireSettingsContinuation ||
+            _pendingSettingsContinuation == revision);
+  }
+
+  bool get _attendanceInteractionLocked =>
+      _authenticationFlowLocked ||
+      _controller.busy ||
+      _controller.awaitingAuthenticationCallback ||
+      _controller.readyAction != null ||
+      _presentingReadyAction;
+
+  void _setAuthenticationFlowLocked(bool locked) {
+    if (_authenticationFlowLocked == locked) return;
+    if (mounted) {
+      setState(() => _authenticationFlowLocked = locked);
+    } else {
+      _authenticationFlowLocked = locked;
+    }
+  }
+
+  void _finishAuthenticationContinuation(int revision) {
+    if (revision != _authenticationContinuationRevision) return;
+    _pendingSettingsContinuation = null;
+    _setAuthenticationFlowLocked(false);
+    _handleNotificationTap();
+  }
+
+  void _invalidateAuthenticationContinuation({bool notify = true}) {
     _authenticationContinuationRevision++;
     _pendingSettingsContinuation = null;
+    if (!_authenticationFlowLocked) return;
+    if (notify && mounted) {
+      setState(() => _authenticationFlowLocked = false);
+    } else {
+      _authenticationFlowLocked = false;
+    }
   }
 
   Future<void> _retry() async {
+    if (_attendanceInteractionLocked) return;
     if (_controller.retryRequiresAuthentication) {
       await _requestAuthentication();
     } else {
@@ -294,6 +367,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     final revision = _controller.readyActionRevision;
     if (action == null ||
         _controller.busy ||
+        _authenticationFlowLocked ||
         _presentingReadyAction ||
         revision <= _handledReadyActionRevision) {
       return;
@@ -383,14 +457,14 @@ class _AttendanceScreenState extends State<AttendanceScreen>
   void didUpdateWidget(covariant AttendanceScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.profile != widget.profile) {
-      _invalidateAuthenticationContinuation();
+      _invalidateAuthenticationContinuation(notify: false);
       _controller.updateProfile(widget.profile);
     }
   }
 
   @override
   void dispose() {
-    _invalidateAuthenticationContinuation();
+    _invalidateAuthenticationContinuation(notify: false);
     WidgetsBinding.instance.removeObserver(this);
     _linkSubscription?.cancel();
     widget.notificationScheduler.tapPayload.removeListener(
@@ -482,8 +556,11 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     return ListenableBuilder(
       listenable: _controller,
       builder: (context, _) {
-        final attendanceLocked =
-            _controller.busy || _controller.awaitingAuthenticationCallback;
+        final attendanceBusy =
+            _authenticationFlowLocked ||
+            _controller.busy ||
+            _controller.awaitingAuthenticationCallback;
+        final attendanceLocked = _attendanceInteractionLocked;
         return Scaffold(
           appBar: AppBar(
             title: const Text('SKALA 출결'),
@@ -522,7 +599,8 @@ class _AttendanceScreenState extends State<AttendanceScreen>
               _StatusCard(
                 status: _controller.dailyStatus,
                 liveSnapshot: _controller.snapshot,
-                busy: attendanceLocked,
+                busy: attendanceBusy,
+                interactionLocked: attendanceLocked,
                 showRecentlyUpdated: _showRecentlyUpdated,
                 highlightedAction: _highlightedAction,
                 message: _controller.message,
@@ -934,6 +1012,7 @@ class _StatusCard extends StatelessWidget {
     required this.status,
     required this.liveSnapshot,
     required this.busy,
+    required this.interactionLocked,
     required this.showRecentlyUpdated,
     required this.highlightedAction,
     required this.message,
@@ -948,6 +1027,7 @@ class _StatusCard extends StatelessWidget {
   final DailyAttendanceStatus status;
   final AttendanceSnapshot? liveSnapshot;
   final bool busy;
+  final bool interactionLocked;
   final bool showRecentlyUpdated;
   final AttendanceAction? highlightedAction;
   final String message;
@@ -982,7 +1062,7 @@ class _StatusCard extends StatelessWidget {
                 ),
                 IconButton(
                   tooltip: '출결 상태 새로고침',
-                  onPressed: busy ? null : onRefresh,
+                  onPressed: interactionLocked ? null : onRefresh,
                   icon: busy
                       ? const SizedBox.square(
                           dimension: 20,
@@ -1032,7 +1112,7 @@ class _StatusCard extends StatelessWidget {
                 SizedBox(
                   width: double.infinity,
                   child: FilledButton.tonalIcon(
-                    onPressed: busy ? null : onRetry,
+                    onPressed: interactionLocked ? null : onRetry,
                     icon: const Icon(Icons.refresh_rounded),
                     label: Text(retryLabel),
                   ),
@@ -1060,7 +1140,9 @@ class _StatusCard extends StatelessWidget {
                 runSpacing: 8,
                 children: availableActions.map((action) {
                   return FilledButton.tonal(
-                    onPressed: busy ? null : () => onAction(action),
+                    onPressed: interactionLocked
+                        ? null
+                        : () => onAction(action),
                     child: Text(action.label),
                   );
                 }).toList(),

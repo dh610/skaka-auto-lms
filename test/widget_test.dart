@@ -467,6 +467,95 @@ void main() {
   });
 
   testWidgets(
+    'authentication setup lookup locks controls and notification intent',
+    (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      const profile = UserProfile(
+        name: '윤동현',
+        region: CampusRegion.pangyo5f,
+        classNumber: 8,
+      );
+      final schedules = ScheduleController(ScheduleStore());
+      await schedules.load();
+      await schedules.saveSchedule(
+        AttendanceSchedule(
+          id: 'queued-check-out',
+          action: AttendanceAction.checkOut,
+          hour: 18,
+          minute: 0,
+          weekdays: const {},
+          enabled: true,
+          recurrence: ScheduleRecurrence.once,
+          date: DateTime(2026, 7, 23),
+        ),
+      );
+      final settingsGate = Completer<bool>();
+      final linkSettings = _FakeCallbackLinkSettings(enabled: true)
+        ..isEnabledGate = settingsGate;
+      final gateway = _WidgetTestAttendanceGateway();
+      final notifications = _NoOpNotificationScheduler();
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: AttendanceScreen(
+            profile: profile,
+            scheduleController: schedules,
+            notificationScheduler: notifications,
+            onEditProfile: () async {},
+            gateway: gateway,
+            appLinkStream: const Stream.empty(),
+            isAndroid: true,
+            callbackLinkSettings: linkSettings,
+            now: () => DateTime.utc(2026, 7, 24, 3),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('출결 상태 새로고침'));
+      await tester.pump();
+
+      final refreshButton = tester.widget<IconButton>(
+        find
+            .ancestor(
+              of: find.byTooltip('출결 상태 새로고침'),
+              matching: find.byType(IconButton),
+            )
+            .first,
+      );
+      expect(refreshButton.onPressed, isNull);
+      for (final action in AttendanceAction.values) {
+        expect(
+          tester
+              .widget<FilledButton>(
+                find.widgetWithText(FilledButton, action.label),
+              )
+              .onPressed,
+          isNull,
+        );
+      }
+
+      notifications.emit(
+        '{"scheduleId":"queued-check-out","action":"checkOut",'
+        '"scheduledAt":"2026-07-23T18:00:00.000"}',
+      );
+      await tester.pump();
+      expect(notifications.tapPayload.value, isNotNull);
+      expect(gateway.authenticationCallCount, 0);
+
+      settingsGate.complete(true);
+      await tester.pump();
+      await tester.pump();
+
+      expect(gateway.authenticationCallCount, 1);
+      expect(notifications.tapPayload.value, isNotNull);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump();
+      schedules.dispose();
+    },
+  );
+
+  testWidgets(
     'action authenticates and records only after current confirmation',
     (tester) async {
       SharedPreferences.setMockInitialValues({});
@@ -593,7 +682,7 @@ void main() {
     schedules.dispose();
   });
 
-  testWidgets('a replaced confirmation cannot send a stale action', (
+  testWidgets('an open confirmation locks competing attendance requests', (
     tester,
   ) async {
     SharedPreferences.setMockInitialValues({});
@@ -647,12 +736,12 @@ void main() {
           )
           .first,
     );
-    refresh.onPressed!.call();
-    await tester.pumpAndSettle();
+    expect(refresh.onPressed, isNull);
+
     await tester.tap(find.text('외출 전송'));
     await tester.pumpAndSettle();
 
-    expect(gateway.recordedAction, isNull);
+    expect(gateway.recordedAction, AttendanceAction.leave);
 
     await links.close();
     schedules.dispose();
@@ -1433,6 +1522,87 @@ void main() {
     schedules.dispose();
   });
 
+  testWidgets(
+    'queued schedule waits until the current ready action is resolved',
+    (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      const profile = UserProfile(
+        name: '윤동현',
+        region: CampusRegion.pangyo5f,
+        classNumber: 8,
+      );
+      final schedules = ScheduleController(ScheduleStore());
+      await schedules.load();
+      await schedules.saveSchedule(
+        AttendanceSchedule(
+          id: 'queued-check-out-after-leave',
+          action: AttendanceAction.checkOut,
+          hour: 18,
+          minute: 0,
+          weekdays: const {},
+          enabled: true,
+          recurrence: ScheduleRecurrence.once,
+          date: DateTime(2026, 7, 23),
+        ),
+      );
+      final notifications = _NoOpNotificationScheduler();
+      final links = StreamController<Uri>();
+      final gateway = _WidgetTestAttendanceGateway(
+        snapshot: const AttendanceSnapshot(
+          networkAllowed: true,
+          checkInTime: '09:00',
+        ),
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: AttendanceScreen(
+            profile: profile,
+            scheduleController: schedules,
+            notificationScheduler: notifications,
+            onEditProfile: () async {},
+            gateway: gateway,
+            appLinkStream: links.stream,
+            isAndroid: true,
+            callbackLinkSettings: _FakeCallbackLinkSettings(enabled: true),
+            now: () => DateTime.utc(2026, 7, 24, 3),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.widgetWithText(FilledButton, '외출'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, '외출'));
+      await tester.pump();
+      await tester.pump();
+
+      notifications.emit(
+        '{"scheduleId":"queued-check-out-after-leave","action":"checkOut",'
+        '"scheduledAt":"2026-07-23T18:00:00.000"}',
+      );
+      links.add(Uri.parse('https://att.skala-ai.com?token=test-token'));
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.text('외출 처리'), findsOneWidget);
+      expect(notifications.tapPayload.value, isNotNull);
+      expect(gateway.authenticationCallCount, 1);
+
+      await tester.tap(find.text('취소'));
+      await tester.pump();
+      await tester.pump();
+
+      expect(notifications.tapPayload.value, isNull);
+      expect(find.text('퇴실 처리'), findsOneWidget);
+      expect(gateway.authenticationCallCount, 1);
+
+      await tester.tap(find.text('취소'));
+      await tester.pumpAndSettle();
+      await links.close();
+      schedules.dispose();
+    },
+  );
+
   testWidgets('notification for a deleted schedule does not authenticate', (
     tester,
   ) async {
@@ -1684,13 +1854,15 @@ void main() {
     );
     await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('출결 상태 새로고침'));
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump();
 
     expect(find.text('앱 복귀 설정이 필요합니다'), findsOneWidget);
     expect(gateway.authenticationProfile, isNull);
 
     await tester.tap(find.text('링크 설정 열기'));
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump();
     expect(linkSettings.openCount, 1);
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
     await tester.pump();
@@ -1698,6 +1870,74 @@ void main() {
     expect(gateway.authenticationProfile, profile);
     schedules.dispose();
   });
+
+  testWidgets(
+    'external settings residence stays locked and disabled return unlocks',
+    (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      const profile = UserProfile(
+        name: '윤동현',
+        region: CampusRegion.pangyo5f,
+        classNumber: 8,
+      );
+      final schedules = ScheduleController(ScheduleStore());
+      await schedules.load();
+      final gateway = _WidgetTestAttendanceGateway();
+      final linkSettings = _FakeCallbackLinkSettings(enabled: false);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: AttendanceScreen(
+            profile: profile,
+            scheduleController: schedules,
+            notificationScheduler: _NoOpNotificationScheduler(),
+            onEditProfile: () async {},
+            gateway: gateway,
+            appLinkStream: const Stream.empty(),
+            isAndroid: true,
+            callbackLinkSettings: linkSettings,
+            now: () => DateTime.utc(2026, 7, 24, 3),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('출결 상태 새로고침'));
+      await tester.pump();
+      await tester.pump();
+      await tester.tap(find.text('링크 설정 열기'));
+      await tester.pump();
+      await tester.pump();
+
+      final lockedRefresh = tester.widget<IconButton>(
+        find
+            .ancestor(
+              of: find.byTooltip('출결 상태 새로고침'),
+              matching: find.byType(IconButton),
+            )
+            .first,
+      );
+      expect(lockedRefresh.onPressed, isNull);
+      expect(gateway.authenticationCallCount, 0);
+
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+      await tester.pump();
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pumpAndSettle();
+
+      final unlockedRefresh = tester.widget<IconButton>(
+        find
+            .ancestor(
+              of: find.byTooltip('출결 상태 새로고침'),
+              matching: find.byType(IconButton),
+            )
+            .first,
+      );
+      expect(unlockedRefresh.onPressed, isNotNull);
+      expect(gateway.authenticationCallCount, 0);
+
+      schedules.dispose();
+    },
+  );
 
   testWidgets('canceling app link settings abandons the pending action', (
     tester,
@@ -1738,7 +1978,8 @@ void main() {
     await tester.ensureVisible(find.widgetWithText(FilledButton, '외출'));
     await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(FilledButton, '외출'));
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump();
     await tester.tap(find.text('취소'));
     await tester.pumpAndSettle();
 
@@ -1795,9 +2036,11 @@ void main() {
     await tester.pumpWidget(buildScreen(profile));
     await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('출결 상태 새로고침'));
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump();
     await tester.tap(find.text('링크 설정 열기'));
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump();
 
     final settingsGate = Completer<bool>();
     linkSettings.isEnabledGate = settingsGate;

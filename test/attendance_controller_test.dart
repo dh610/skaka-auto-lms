@@ -573,6 +573,78 @@ void main() {
     },
   );
 
+  test(
+    'tokenless callback invalidates an in-flight launch and preserves intent',
+    () async {
+      final authenticationGate = Completer<void>();
+      final gateway = _FakeAttendanceGateway()
+        ..authenticationGate = authenticationGate;
+      final controller = AttendanceController(
+        profile,
+        gateway,
+        isAndroid: true,
+      );
+      await controller.requestAction(AttendanceAction.leave);
+
+      final authentication = controller.startAuthentication();
+      await Future<void>.delayed(Duration.zero);
+      await controller.handleCallback(Uri.parse('https://att.skala-ai.com/'));
+
+      expect(controller.awaitingAuthenticationCallback, isFalse);
+      expect(controller.busy, isFalse);
+      expect(controller.retryRequiresAuthentication, isTrue);
+
+      authenticationGate.complete();
+      await authentication;
+      expect(controller.awaitingAuthenticationCallback, isFalse);
+
+      await controller.startAuthentication();
+      await controller.handleCallback(
+        Uri.parse('https://att.skala-ai.com/?token=test-token'),
+      );
+
+      expect(gateway.authenticationCallCount, 2);
+      expect(controller.readyAction, AttendanceAction.leave);
+      controller.dispose();
+    },
+  );
+
+  test(
+    'link stream error invalidates an in-flight launch and preserves intent',
+    () async {
+      final authenticationGate = Completer<void>();
+      final gateway = _FakeAttendanceGateway()
+        ..authenticationGate = authenticationGate;
+      final controller = AttendanceController(
+        profile,
+        gateway,
+        isAndroid: true,
+      );
+      await controller.requestAction(AttendanceAction.leave);
+
+      final authentication = controller.startAuthentication();
+      await Future<void>.delayed(Duration.zero);
+      controller.reportLinkError(StateError('link failed'));
+
+      expect(controller.awaitingAuthenticationCallback, isFalse);
+      expect(controller.busy, isFalse);
+      expect(controller.retryRequiresAuthentication, isTrue);
+
+      authenticationGate.complete();
+      await authentication;
+      expect(controller.awaitingAuthenticationCallback, isFalse);
+
+      await controller.startAuthentication();
+      await controller.handleCallback(
+        Uri.parse('https://att.skala-ai.com/?token=test-token'),
+      );
+
+      expect(gateway.authenticationCallCount, 2);
+      expect(controller.readyAction, AttendanceAction.leave);
+      controller.dispose();
+    },
+  );
+
   test('status refresh reuses a valid in-memory token', () async {
     final gateway = _FakeAttendanceGateway();
     final controller = AttendanceController(profile, gateway, isAndroid: true);
