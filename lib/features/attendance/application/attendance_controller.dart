@@ -7,7 +7,11 @@ import '../../profile/domain/user_profile.dart';
 import '../../schedule/domain/attendance_schedule.dart';
 import '../data/attendance_completion_store.dart';
 import '../data/attendance_gateway.dart';
+import '../data/attendance_status_store.dart';
 import '../domain/attendance_snapshot.dart';
+import '../domain/daily_attendance_status.dart';
+
+enum AttendanceRequestResult { completed, authenticationRequired }
 
 class AttendanceController extends ChangeNotifier {
   AttendanceController(
@@ -15,15 +19,19 @@ class AttendanceController extends ChangeNotifier {
     this._gateway, {
     bool? isAndroid,
     this.completionStore,
+    this.statusStore,
     DateTime Function()? now,
   }) : _isAndroid = isAndroid ?? Platform.isAndroid,
-       _now = now ?? DateTime.now;
+       _now = now ?? DateTime.now {
+    _dailyStatus = DailyAttendanceStatus.unqueried(_koreaDate(_now()));
+  }
 
   UserProfile _profile;
   final AttendanceGateway _gateway;
   final bool _isAndroid;
   final DateTime Function() _now;
   final AttendanceCompletionStore? completionStore;
+  final AttendanceStatusStore? statusStore;
 
   bool _busy = false;
   String _message = 'Google 인증 후 출결 정보를 확인하세요.';
@@ -35,19 +43,30 @@ class AttendanceController extends ChangeNotifier {
   int _completionRevision = 0;
   AttendanceAction? _lastCompletedAction;
   AttendanceAction? _pendingActionConfirmation;
+  _AttendanceRequest? _pendingRequest;
+  AttendanceAction? _readyAction;
+  int _readyActionRevision = 0;
+  bool _awaitingAuthenticationCallback = false;
+  Timer? _authenticationCallbackGraceTimer;
   DateTime? _snapshotKoreaDate;
+  late DailyAttendanceStatus _dailyStatus;
   int _sessionRevision = 0;
+  Future<void> _statusStoreOperation = Future.value();
   Map<String, DateTime> _completedOccurrences = {};
   Map<String, DateTime> _skippedOccurrences = {};
 
   bool get busy => _busy;
   String get message => _message;
   AttendanceSnapshot? get snapshot => _snapshot;
+  DailyAttendanceStatus get dailyStatus => _dailyStatus;
   bool get authenticated => _token != null;
   bool get hasError => _hasError;
   int get statusRevision => _statusRevision;
   int get completionRevision => _completionRevision;
   AttendanceAction? get lastCompletedAction => _lastCompletedAction;
+  AttendanceAction? get readyAction => _readyAction;
+  int get readyActionRevision => _readyActionRevision;
+  bool get awaitingAuthenticationCallback => _awaitingAuthenticationCallback;
   bool get canRetry => _recovery != null;
   bool get retryRequiresAuthentication =>
       _recovery == _AttendanceRecovery.authenticate;
@@ -55,6 +74,22 @@ class AttendanceController extends ChangeNotifier {
     _AttendanceRecovery.refresh => '출결 상태 다시 조회',
     _ => 'Google 인증 다시 시도',
   };
+
+  Future<void> loadDailyStatus() async {
+    final store = statusStore;
+    if (store == null) return;
+    final sessionRevision = _sessionRevision;
+    final statusRevision = _statusRevision;
+    final koreaDate = _koreaDate(_now());
+    final restored = await store.loadFor(koreaDate);
+    if (!_operationIsCurrent(sessionRevision, koreaDate) ||
+        statusRevision != _statusRevision ||
+        restored.koreaDate != koreaDate) {
+      return;
+    }
+    _dailyStatus = restored;
+    notifyListeners();
+  }
 
   bool wasScheduleCompleted(AttendanceSchedule schedule, DateTime date) {
     return _occurrenceWasRecorded(_completedOccurrences, schedule, date);
@@ -116,15 +151,21 @@ class AttendanceController extends ChangeNotifier {
   }
 
   void updateProfile(UserProfile profile) {
+    _cancelAuthenticationCallbackGrace();
     _sessionRevision++;
     _profile = profile;
     _token = null;
     _lastCompletedAction = null;
     _pendingActionConfirmation = null;
+    _pendingRequest = null;
+    _readyAction = null;
+    _awaitingAuthenticationCallback = false;
     _snapshotKoreaDate = null;
+    _dailyStatus = DailyAttendanceStatus.unqueried(_koreaDate(_now()));
     _completedOccurrences = {};
     _skippedOccurrences = {};
     if (completionStore case final store?) unawaited(store.clear());
+    _clearDailyStatusStore();
     _setState(
       busy: false,
       clearSnapshot: true,
@@ -137,11 +178,15 @@ class AttendanceController extends ChangeNotifier {
     String? scheduleId,
     DateTime? scheduledAt,
   }) async {
+    invalidateExpiredDailyState();
+    if (_awaitingAuthenticationCallback) return;
+    _cancelAuthenticationCallbackGrace();
+    _pendingRequest ??= const _StatusRefreshRequest();
     final sessionRevision = ++_sessionRevision;
     final operationDate = _koreaDate(_now());
     _token = null;
     _lastCompletedAction = null;
-    _pendingActionConfirmation = null;
+    _readyAction = null;
     _snapshotKoreaDate = null;
     _setState(
       busy: true,
@@ -152,10 +197,31 @@ class AttendanceController extends ChangeNotifier {
     try {
       await _gateway.startBrowserAuthentication(_profile);
       if (!_operationIsCurrent(sessionRevision, operationDate)) return;
-      if (scheduleId != null && scheduledAt != null) {
-        await _rememberScheduledOccurrence(scheduleId, scheduledAt);
+      final pendingRequest = _pendingRequest;
+      final pendingOccurrence = switch (pendingRequest) {
+        _ActionRequest(
+          scheduleId: final scheduleId?,
+          scheduledAt: final scheduledAt?,
+        ) =>
+          (scheduleId, scheduledAt),
+        _ => null,
+      };
+      final legacyOccurrence = switch ((scheduleId, scheduledAt)) {
+        (final scheduleId?, final scheduledAt?) => (scheduleId, scheduledAt),
+        _ => null,
+      };
+      final occurrence = pendingOccurrence ?? legacyOccurrence;
+      if (occurrence case (
+        final occurrenceScheduleId,
+        final occurrenceScheduledAt,
+      )) {
+        await _rememberScheduledOccurrence(
+          occurrenceScheduleId,
+          occurrenceScheduledAt,
+        );
         if (!_operationIsCurrent(sessionRevision, operationDate)) return;
       }
+      _awaitingAuthenticationCallback = _isAndroid;
       _setState(
         message: _isAndroid
             ? 'Chrome에서 Google 계정을 선택하세요. 인증 후 앱으로 돌아옵니다.'
@@ -163,6 +229,7 @@ class AttendanceController extends ChangeNotifier {
       );
     } catch (error) {
       if (!_operationIsCurrent(sessionRevision, operationDate)) return;
+      _awaitingAuthenticationCallback = false;
       _setState(
         message: _friendlyError(error, operation: 'Google 인증을 시작하지 못했습니다.'),
         hasError: true,
@@ -173,26 +240,154 @@ class AttendanceController extends ChangeNotifier {
     }
   }
 
+  Future<AttendanceRequestResult> requestStatusRefresh() {
+    return _request(const _StatusRefreshRequest());
+  }
+
+  Future<AttendanceRequestResult> requestAction(
+    AttendanceAction action, {
+    String? scheduleId,
+    DateTime? scheduledAt,
+  }) {
+    return _request(
+      _ActionRequest(action, scheduleId: scheduleId, scheduledAt: scheduledAt),
+    );
+  }
+
+  void cancelPendingRequest() {
+    if (_pendingRequest == null && !_awaitingAuthenticationCallback) return;
+    _cancelAuthenticationCallbackGrace();
+    _sessionRevision++;
+    _pendingRequest = null;
+    _awaitingAuthenticationCallback = false;
+    _setState(busy: false);
+  }
+
+  void cancelReadyAction() {
+    _readyAction = null;
+    notifyListeners();
+  }
+
+  Future<AttendanceRequestResult> _request(_AttendanceRequest request) async {
+    invalidateExpiredDailyState();
+    if (_awaitingAuthenticationCallback) {
+      return AttendanceRequestResult.completed;
+    }
+    if (!busy &&
+        _pendingRequest != null &&
+        _recovery == _AttendanceRecovery.authenticate) {
+      return AttendanceRequestResult.authenticationRequired;
+    }
+    final sessionRevision = ++_sessionRevision;
+    final operationDate = _koreaDate(_now());
+    final effectiveRequest = _pendingActionConfirmation == null
+        ? request
+        : const _StatusRefreshRequest();
+    _pendingRequest = effectiveRequest;
+    _readyAction = null;
+
+    final token = _token;
+    if (token == null) {
+      _setAuthenticationRequiredState();
+      return AttendanceRequestResult.authenticationRequired;
+    }
+
+    try {
+      _gateway.validateAttendanceToken(token, _profile);
+    } catch (_) {
+      if (!_operationIsCurrent(sessionRevision, operationDate, token: token)) {
+        return AttendanceRequestResult.completed;
+      }
+      _token = null;
+      _setAuthenticationRequiredState();
+      return AttendanceRequestResult.authenticationRequired;
+    }
+
+    if (effectiveRequest case _ActionRequest(
+      scheduleId: final scheduleId?,
+      scheduledAt: final scheduledAt?,
+    )) {
+      await _rememberScheduledOccurrence(scheduleId, scheduledAt);
+      if (!_operationIsCurrent(sessionRevision, operationDate, token: token)) {
+        return AttendanceRequestResult.completed;
+      }
+    }
+
+    _setState(busy: true, message: '현재 출결 상태 확인 중…', clearRecovery: true);
+    try {
+      final snapshot = await _gateway.fetchToday(token);
+      if (!_operationIsCurrent(sessionRevision, operationDate, token: token)) {
+        return AttendanceRequestResult.completed;
+      }
+      await _publishRequestedSnapshot(
+        snapshot,
+        request: effectiveRequest,
+        koreaDate: operationDate,
+        refreshMessage: '현재 출결 상태를 다시 확인했습니다.',
+      );
+      return AttendanceRequestResult.completed;
+    } on AttendanceAuthenticationExpiredException {
+      if (!_operationIsCurrent(sessionRevision, operationDate, token: token)) {
+        return AttendanceRequestResult.completed;
+      }
+      _token = null;
+      _setAuthenticationRequiredState();
+      return AttendanceRequestResult.authenticationRequired;
+    } catch (error) {
+      if (!_operationIsCurrent(sessionRevision, operationDate, token: token)) {
+        return AttendanceRequestResult.completed;
+      }
+      _pendingRequest = null;
+      _setState(
+        message: _friendlyError(error, operation: '출결 정보를 불러오지 못했습니다.'),
+        hasError: true,
+        recovery: _AttendanceRecovery.refresh,
+      );
+      return AttendanceRequestResult.completed;
+    } finally {
+      if (sessionRevision == _sessionRevision) _setState(busy: false);
+    }
+  }
+
+  void _setAuthenticationRequiredState() {
+    _setState(
+      busy: false,
+      message: 'Google 인증이 필요합니다.',
+      hasError: false,
+      recovery: _AttendanceRecovery.authenticate,
+    );
+  }
+
   Future<void> handleCallback(Uri uri) async {
     if (!_isAndroid ||
         uri.scheme != 'https' ||
         uri.host != 'att.skala-ai.com') {
       return;
     }
+    _cancelAuthenticationCallbackGrace();
+    _awaitingAuthenticationCallback = false;
     final token = uri.queryParameters['token'];
     if (token == null || token.isEmpty) {
+      _sessionRevision++;
       _setState(
+        busy: false,
         message: '인증 정보가 전달되지 않았습니다. Google 인증을 다시 진행해주세요.',
         hasError: true,
         recovery: _AttendanceRecovery.authenticate,
       );
       return;
     }
+    invalidateExpiredDailyState();
+    if (_pendingActionConfirmation != null) {
+      _pendingRequest = const _StatusRefreshRequest();
+    } else {
+      _pendingRequest ??= const _StatusRefreshRequest();
+    }
     final sessionRevision = ++_sessionRevision;
     final operationDate = _koreaDate(_now());
     _token = null;
     _lastCompletedAction = null;
-    _pendingActionConfirmation = null;
+    _readyAction = null;
     _snapshotKoreaDate = null;
     _setState(busy: true, clearSnapshot: true, message: '인증 토큰 확인 및 상태 조회 중…');
     try {
@@ -200,10 +395,19 @@ class AttendanceController extends ChangeNotifier {
       final snapshot = await _gateway.fetchToday(token);
       if (!_operationIsCurrent(sessionRevision, operationDate)) return;
       _token = token;
-      _publishSnapshot(
+      await _publishRequestedSnapshot(
         snapshot,
-        message: '인증 및 상태 조회에 성공했습니다.',
+        request: _pendingRequest ?? const _StatusRefreshRequest(),
         koreaDate: operationDate,
+        refreshMessage: '인증 및 상태 조회에 성공했습니다.',
+      );
+    } on AttendanceAuthenticationExpiredException catch (error) {
+      if (!_operationIsCurrent(sessionRevision, operationDate)) return;
+      _token = null;
+      _setState(
+        message: _friendlyError(error, operation: '출결 정보를 불러오지 못했습니다.'),
+        hasError: true,
+        recovery: _AttendanceRecovery.authenticate,
       );
     } catch (error) {
       if (!_operationIsCurrent(sessionRevision, operationDate)) return;
@@ -218,8 +422,19 @@ class AttendanceController extends ChangeNotifier {
     }
   }
 
-  Future<void> performAction(AttendanceAction action) async {
+  Future<void> performAction(
+    AttendanceAction action, {
+    int? readyActionRevision,
+  }) async {
     if (invalidateExpiredDailyState()) return;
+    if (_readyAction != action ||
+        readyActionRevision == null ||
+        readyActionRevision != _readyActionRevision) {
+      _setState(message: '출결 상태가 변경되었습니다. 최신 상태를 다시 확인해주세요.');
+      return;
+    }
+    _readyAction = null;
+    notifyListeners();
     final sessionRevision = _sessionRevision;
     final operationDate = _koreaDate(_now());
     final token = _token;
@@ -234,8 +449,10 @@ class AttendanceController extends ChangeNotifier {
     }
     _setState(busy: true, message: '${action.label} 요청 전송 중…');
     _pendingActionConfirmation = action;
+    var actionAccepted = false;
     try {
       await _gateway.recordAction(token, action);
+      actionAccepted = true;
       if (!_operationIsCurrent(sessionRevision, operationDate, token: token)) {
         return;
       }
@@ -246,11 +463,27 @@ class AttendanceController extends ChangeNotifier {
       if (!updated.reflects(action)) {
         throw StateError('서버 상태에서 ${action.label} 반영을 확인하지 못했습니다.');
       }
-      _publishSnapshot(
+      await _publishSnapshot(
         updated,
         message: '${action.label} 처리가 완료되었습니다.',
         completedAction: action,
         koreaDate: operationDate,
+      );
+    } on AttendanceAuthenticationExpiredException {
+      if (!_operationIsCurrent(sessionRevision, operationDate, token: token)) {
+        return;
+      }
+      _token = null;
+      if (!actionAccepted) _pendingActionConfirmation = null;
+      _pendingRequest = const _StatusRefreshRequest();
+      _setState(
+        message: actionAccepted
+            ? '${action.label} 요청은 전송되었지만 인증이 만료되어 처리 결과를 확인하지 못했습니다. '
+                  '재인증 후 현재 출결 상태만 확인합니다.'
+            : '인증이 만료되어 ${action.label} 요청을 전송하지 못했습니다. '
+                  '재인증 후 현재 출결 상태를 확인해주세요.',
+        hasError: true,
+        recovery: _AttendanceRecovery.authenticate,
       );
     } catch (error) {
       if (!_operationIsCurrent(sessionRevision, operationDate, token: token)) {
@@ -284,7 +517,11 @@ class AttendanceController extends ChangeNotifier {
   }
 
   void reportLinkError(Object error) {
+    _cancelAuthenticationCallbackGrace();
+    _sessionRevision++;
+    _awaitingAuthenticationCallback = false;
     _setState(
+      busy: false,
       message: '인증 결과를 앱으로 가져오지 못했습니다. Google 인증을 다시 진행해주세요.',
       hasError: true,
       recovery: _AttendanceRecovery.authenticate,
@@ -317,17 +554,21 @@ class AttendanceController extends ChangeNotifier {
       if (!_operationIsCurrent(sessionRevision, operationDate, token: token)) {
         return;
       }
-      final pendingAction = _pendingActionConfirmation;
-      if (pendingAction != null && !snapshot.reflects(pendingAction)) {
-        throw StateError('서버 상태에서 ${pendingAction.label} 반영을 확인하지 못했습니다.');
-      }
-      _publishSnapshot(
+      await _publishReconciledSnapshot(
         snapshot,
-        message: pendingAction == null
-            ? '현재 출결 상태를 다시 확인했습니다.'
-            : '${pendingAction.label} 처리가 완료되었습니다.',
-        completedAction: pendingAction,
         koreaDate: operationDate,
+        refreshMessage: '현재 출결 상태를 다시 확인했습니다.',
+      );
+    } on AttendanceAuthenticationExpiredException {
+      if (!_operationIsCurrent(sessionRevision, operationDate, token: token)) {
+        return;
+      }
+      _token = null;
+      _pendingRequest = const _StatusRefreshRequest();
+      _setState(
+        message: '인증이 만료되었습니다. 재인증 후 현재 출결 상태만 다시 확인합니다.',
+        hasError: true,
+        recovery: _AttendanceRecovery.authenticate,
       );
     } catch (error) {
       if (!_operationIsCurrent(sessionRevision, operationDate, token: token)) {
@@ -343,13 +584,19 @@ class AttendanceController extends ChangeNotifier {
     }
   }
 
-  void _publishSnapshot(
+  Future<void> _publishSnapshot(
     AttendanceSnapshot snapshot, {
     required String message,
     AttendanceAction? completedAction,
     DateTime? koreaDate,
-  }) {
-    _snapshotKoreaDate = koreaDate ?? _koreaDate(_now());
+  }) async {
+    final snapshotDate = koreaDate ?? _koreaDate(_now());
+    _snapshotKoreaDate = snapshotDate;
+    _dailyStatus = DailyAttendanceStatus.fromSnapshot(
+      koreaDate: snapshotDate,
+      fetchedAt: _now(),
+      snapshot: snapshot,
+    );
     _statusRevision++;
     if (completedAction != null) {
       _completionRevision++;
@@ -357,13 +604,89 @@ class AttendanceController extends ChangeNotifier {
       _pendingActionConfirmation = null;
     }
     _setState(snapshot: snapshot, message: message, clearRecovery: true);
+    await _saveDailyStatus(_dailyStatus);
   }
 
-  bool invalidateExpiredDailyState() {
+  Future<void> _publishRequestedSnapshot(
+    AttendanceSnapshot snapshot, {
+    required _AttendanceRequest request,
+    required DateTime koreaDate,
+    required String refreshMessage,
+  }) async {
+    _pendingRequest = null;
+    switch (request) {
+      case _StatusRefreshRequest():
+        await _publishReconciledSnapshot(
+          snapshot,
+          koreaDate: koreaDate,
+          refreshMessage: refreshMessage,
+        );
+      case _ActionRequest(:final action):
+        final available = snapshot.availableActions.contains(action);
+        if (available) {
+          _readyAction = action;
+          _readyActionRevision++;
+        }
+        await _publishSnapshot(
+          snapshot,
+          message: available
+              ? '최신 출결 상태를 확인했습니다. ${action.label} 동작을 확인해주세요.'
+              : '현재 출결 상태에서는 ${action.label}할 수 없습니다.',
+          koreaDate: koreaDate,
+        );
+    }
+  }
+
+  Future<void> _publishReconciledSnapshot(
+    AttendanceSnapshot snapshot, {
+    required DateTime koreaDate,
+    required String refreshMessage,
+  }) async {
+    final reconciliationRevision = _sessionRevision;
+    final pendingAction = _pendingActionConfirmation;
+    if (pendingAction == null) {
+      await _publishSnapshot(
+        snapshot,
+        message: refreshMessage,
+        koreaDate: koreaDate,
+      );
+      return;
+    }
+    if (snapshot.reflects(pendingAction)) {
+      await _publishSnapshot(
+        snapshot,
+        message: '${pendingAction.label} 처리가 완료되었습니다.',
+        completedAction: pendingAction,
+        koreaDate: koreaDate,
+      );
+      return;
+    }
+    await _publishSnapshot(
+      snapshot,
+      message: '${pendingAction.label} 처리 결과를 아직 서버 상태에서 확인하지 못했습니다.',
+      koreaDate: koreaDate,
+    );
+    if (!_operationIsCurrent(reconciliationRevision, koreaDate) ||
+        _pendingActionConfirmation != pendingAction) {
+      return;
+    }
+    _setState(
+      message:
+          '${pendingAction.label} 처리 결과를 아직 확인하지 못했습니다. '
+          '중복 전송하지 말고 현재 출결 상태를 다시 확인해주세요.',
+      hasError: true,
+      recovery: _AttendanceRecovery.refresh,
+    );
+  }
+
+  bool invalidateExpiredDailyState({VoidCallback? beforeInvalidation}) {
     final snapshotDate = _snapshotKoreaDate;
-    if (snapshotDate == null || snapshotDate == _koreaDate(_now())) {
+    final koreaDate = _koreaDate(_now());
+    if ((snapshotDate == null || snapshotDate == koreaDate) &&
+        _dailyStatus.koreaDate == koreaDate) {
       return false;
     }
+    beforeInvalidation?.call();
     _expireDailySession();
     return true;
   }
@@ -382,17 +705,55 @@ class AttendanceController extends ChangeNotifier {
   }
 
   void _expireDailySession() {
+    _cancelAuthenticationCallbackGrace();
     _sessionRevision++;
     _token = null;
     _snapshotKoreaDate = null;
+    _dailyStatus = DailyAttendanceStatus.unqueried(_koreaDate(_now()));
     _lastCompletedAction = null;
     _pendingActionConfirmation = null;
+    _pendingRequest = null;
+    _readyAction = null;
+    _awaitingAuthenticationCallback = false;
     _setState(
       busy: false,
       clearSnapshot: true,
       message: '날짜가 바뀌어 오늘 출결 정보를 다시 확인해야 합니다.',
       recovery: _AttendanceRecovery.authenticate,
     );
+    _clearDailyStatusStore();
+  }
+
+  Future<void> _saveDailyStatus(DailyAttendanceStatus status) async {
+    final store = statusStore;
+    if (store == null) return;
+    try {
+      await _enqueueStatusStoreOperation(() => store.save(status));
+    } catch (_) {
+      // Saving display-only cache data must not change server success state.
+    }
+  }
+
+  void _clearDailyStatusStore() {
+    final store = statusStore;
+    if (store == null) return;
+    unawaited(
+      _ignoreStatusStoreErrors(_enqueueStatusStoreOperation(store.clear)),
+    );
+  }
+
+  Future<void> _enqueueStatusStoreOperation(Future<void> Function() operation) {
+    final queued = _statusStoreOperation.then((_) => operation());
+    _statusStoreOperation = queued.catchError((_) {});
+    return queued;
+  }
+
+  Future<void> _ignoreStatusStoreErrors(Future<void> operation) async {
+    try {
+      await operation;
+    } catch (_) {
+      // The session is already cleared in memory.
+    }
   }
 
   DateTime _koreaDate(DateTime value) {
@@ -458,11 +819,53 @@ class AttendanceController extends ChangeNotifier {
     notifyListeners();
   }
 
+  void startAuthenticationCallbackGrace({
+    Duration duration = const Duration(seconds: 2),
+  }) {
+    if (!_awaitingAuthenticationCallback) return;
+    _cancelAuthenticationCallbackGrace();
+    _authenticationCallbackGraceTimer = Timer(duration, () {
+      _authenticationCallbackGraceTimer = null;
+      if (!_awaitingAuthenticationCallback) return;
+      _awaitingAuthenticationCallback = false;
+      _setState(
+        busy: false,
+        message: 'Google 인증이 취소되었거나 완료되지 않았습니다. 다시 시도해주세요.',
+        hasError: true,
+        recovery: _AttendanceRecovery.authenticate,
+      );
+    });
+  }
+
+  void _cancelAuthenticationCallbackGrace() {
+    _authenticationCallbackGraceTimer?.cancel();
+    _authenticationCallbackGraceTimer = null;
+  }
+
   @override
   void dispose() {
+    _cancelAuthenticationCallbackGrace();
+    _sessionRevision++;
+    _awaitingAuthenticationCallback = false;
     _gateway.close();
     super.dispose();
   }
 }
 
 enum _AttendanceRecovery { authenticate, refresh }
+
+sealed class _AttendanceRequest {
+  const _AttendanceRequest();
+}
+
+final class _StatusRefreshRequest extends _AttendanceRequest {
+  const _StatusRefreshRequest();
+}
+
+final class _ActionRequest extends _AttendanceRequest {
+  const _ActionRequest(this.action, {this.scheduleId, this.scheduledAt});
+
+  final AttendanceAction action;
+  final String? scheduleId;
+  final DateTime? scheduledAt;
+}
