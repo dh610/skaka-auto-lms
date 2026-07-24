@@ -18,6 +18,9 @@ class ScheduleListScreen extends StatelessWidget {
       MaterialPageRoute(
         builder: (_) => ScheduleEditScreen(
           initialSchedule: schedule,
+          initialAlarmSettings:
+              schedule?.alarmSettings ?? controller.defaultAlarmSettings,
+          onPickAlarmSound: controller.pickAlarmSound,
           existingSchedules: controller.schedules,
         ),
       ),

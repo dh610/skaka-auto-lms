@@ -5,13 +5,19 @@ import '../domain/attendance_schedule.dart';
 import '../domain/alarm_settings.dart';
 import '../domain/schedule_conflict.dart';
 import '../domain/training_calendar.dart';
+import 'alarm_sound_picker.dart';
 import 'notification_scheduler.dart';
 
 class ScheduleController extends ChangeNotifier {
-  ScheduleController(this._store, [this._notificationScheduler]);
+  ScheduleController(
+    this._store, [
+    this._notificationScheduler,
+    this._alarmSoundPicker,
+  ]);
 
   final ScheduleStore _store;
   final NotificationScheduler? _notificationScheduler;
+  final AlarmSoundPicker? _alarmSoundPicker;
   List<AttendanceSchedule> _schedules = [];
   bool _loading = true;
   String _notificationMessage = '알림 권한을 설정하면 지정 시각에 안내합니다.';
@@ -27,6 +33,9 @@ class ScheduleController extends ChangeNotifier {
   int get pendingNotificationCount => _pendingNotificationCount;
   bool get notificationsConfigured => _notificationsConfigured;
   AlarmSettings get defaultAlarmSettings => _defaultAlarmSettings;
+
+  Future<AlarmSound?> pickAlarmSound(AlarmSound current) =>
+      _alarmSoundPicker?.pick(current) ?? Future.value(null);
 
   Future<void> load() async {
     _schedules = await _store.load();

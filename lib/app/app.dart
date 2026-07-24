@@ -15,6 +15,7 @@ import '../features/schedule/application/schedule_controller.dart';
 import '../features/schedule/application/notification_scheduler.dart';
 import '../features/schedule/data/schedule_store.dart';
 import '../features/schedule/data/local_notification_scheduler.dart';
+import '../features/schedule/data/platform_alarm_sound_picker.dart';
 import '../features/settings/data/package_info_app_version_provider.dart';
 import '../features/settings/domain/app_version.dart';
 import '../features/settings/presentation/settings_screen.dart';
@@ -93,6 +94,7 @@ class _SkalaAttendanceAppState extends State<SkalaAttendanceApp>
     _scheduleController = ScheduleController(
       ScheduleStore(),
       _notificationScheduler,
+      const PlatformAlarmSoundPicker(),
     );
     _scheduleInitialization = _scheduleController.load();
     _loadProfile();

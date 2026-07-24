@@ -5,6 +5,7 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
+import android.media.RingtoneManager
 import android.content.pm.verify.domain.DomainVerificationManager
 import android.content.pm.verify.domain.DomainVerificationUserState
 import androidx.browser.customtabs.CustomTabsIntent
@@ -14,6 +15,8 @@ import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterActivity() {
     private val callbackHost = "att.skala-ai.com"
+    private val alarmSoundRequestCode = 7101
+    private var pendingAlarmSoundResult: MethodChannel.Result? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -34,6 +37,63 @@ class MainActivity : FlutterActivity() {
                     else -> result.notImplemented()
                 }
             }
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "skala_attendance/alarm")
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "pickAlarmSound" -> pickAlarmSound(call.argument("uri"), result)
+                    else -> result.notImplemented()
+                }
+            }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun pickAlarmSound(currentUri: String?, result: MethodChannel.Result) {
+        if (pendingAlarmSoundResult != null) {
+            result.error("ALREADY_PICKING", "Alarm sound picker is already open", null)
+            return
+        }
+        pendingAlarmSoundResult = result
+        val selected = currentUri?.let(Uri::parse)
+            ?: Settings.System.DEFAULT_ALARM_ALERT_URI
+        val intent = Intent(RingtoneManager.ACTION_RINGTONE_PICKER)
+            .putExtra(RingtoneManager.EXTRA_RINGTONE_TYPE, RingtoneManager.TYPE_ALARM)
+            .putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_DEFAULT, true)
+            .putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_SILENT, false)
+            .putExtra(RingtoneManager.EXTRA_RINGTONE_EXISTING_URI, selected)
+        try {
+            startActivityForResult(intent, alarmSoundRequestCode)
+        } catch (error: ActivityNotFoundException) {
+            pendingAlarmSoundResult = null
+            result.error("PICKER_UNAVAILABLE", error.message, null)
+        }
+    }
+
+    @Deprecated("Deprecated in Android")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        if (requestCode != alarmSoundRequestCode) {
+            super.onActivityResult(requestCode, resultCode, data)
+            return
+        }
+        val result = pendingAlarmSoundResult ?: return
+        pendingAlarmSoundResult = null
+        if (resultCode != RESULT_OK) {
+            result.success(null)
+            return
+        }
+        val uri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            data?.getParcelableExtra(
+                RingtoneManager.EXTRA_RINGTONE_PICKED_URI,
+                Uri::class.java,
+            )
+        } else {
+            @Suppress("DEPRECATION")
+            data?.getParcelableExtra(RingtoneManager.EXTRA_RINGTONE_PICKED_URI)
+        }
+        val normalized = uri ?: Settings.System.DEFAULT_ALARM_ALERT_URI
+        val label = runCatching {
+            RingtoneManager.getRingtone(this, normalized)?.getTitle(this)
+        }.getOrNull().orEmpty().ifBlank { "시스템 기본 알람음" }
+        result.success(mapOf("uri" to normalized.toString(), "label" to label))
     }
 
     private fun openCustomTab(rawUrl: String?, result: MethodChannel.Result) {

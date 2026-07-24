@@ -4,6 +4,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 
 import '../domain/attendance_schedule.dart';
+import '../domain/alarm_settings.dart';
 import '../domain/schedule_conflict.dart';
 import '../domain/training_calendar.dart';
 import 'schedule_visuals.dart';
@@ -12,10 +13,14 @@ class ScheduleEditScreen extends StatefulWidget {
   const ScheduleEditScreen({
     super.key,
     this.initialSchedule,
+    this.initialAlarmSettings = const AlarmSettings(),
+    this.onPickAlarmSound,
     this.existingSchedules = const [],
   });
 
   final AttendanceSchedule? initialSchedule;
+  final AlarmSettings initialAlarmSettings;
+  final Future<AlarmSound?> Function(AlarmSound current)? onPickAlarmSound;
   final List<AttendanceSchedule> existingSchedules;
 
   @override
@@ -33,6 +38,7 @@ class _ScheduleEditScreenState extends State<ScheduleEditScreen> {
   late DateTime _date;
   late bool _excludePublicHolidays;
   late bool _enabled;
+  late AlarmSettings _alarmSettings;
   bool _showStickySave = true;
   bool _showInitialScrollbar = true;
   bool _visibilityUpdateScheduled = false;
@@ -59,6 +65,7 @@ class _ScheduleEditScreenState extends State<ScheduleEditScreen> {
     _date = initial?.date ?? _defaultDate();
     _excludePublicHolidays = initial?.excludePublicHolidays ?? true;
     _enabled = initial?.enabled ?? true;
+    _alarmSettings = initial?.alarmSettings ?? widget.initialAlarmSettings;
     _scrollController.addListener(_scheduleStickySaveVisibilityUpdate);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _updateStickySaveVisibility();
@@ -141,6 +148,82 @@ class _ScheduleEditScreenState extends State<ScheduleEditScreen> {
     if (selected != null && mounted) setState(() => _date = selected);
   }
 
+  Future<void> _pickAlarmSound() async {
+    final selected = await widget.onPickAlarmSound?.call(_alarmSettings.sound);
+    if (selected != null && mounted) {
+      setState(() => _alarmSettings = _alarmSettings.copyWith(sound: selected));
+    }
+  }
+
+  Future<void> _pickSnooze() async {
+    final selected = await showDialog<(int, int?)>(
+      context: context,
+      builder: (dialogContext) => SimpleDialog(
+        title: const Text('다시 알림'),
+        children: [
+          for (final minutes in const [1, 3, 5, 10, 15])
+            for (final maximum in const <int?>[0, 1, 3, 5, 10, null])
+              if ((minutes, maximum) ==
+                  (
+                    _alarmSettings.snoozeMinutes,
+                    _alarmSettings.maximumSnoozeCount,
+                  ))
+                SimpleDialogOption(
+                  onPressed: () =>
+                      Navigator.of(dialogContext).pop((minutes, maximum)),
+                  child: Text(_snoozeLabel(minutes, maximum)),
+                ),
+          const Divider(),
+          for (final minutes in const [1, 3, 5, 10, 15])
+            SimpleDialogOption(
+              onPressed: () => Navigator.of(
+                dialogContext,
+              ).pop((minutes, _alarmSettings.maximumSnoozeCount)),
+              child: Text('$minutes분 간격'),
+            ),
+          const Divider(),
+          for (final maximum in const <int?>[0, 1, 3, 5, 10, null])
+            SimpleDialogOption(
+              onPressed: () => Navigator.of(
+                dialogContext,
+              ).pop((_alarmSettings.snoozeMinutes, maximum)),
+              child: Text(maximum == null ? '횟수 제한 없음' : '최대 $maximum회'),
+            ),
+        ],
+      ),
+    );
+    if (selected == null || !mounted) return;
+    setState(() {
+      _alarmSettings = _alarmSettings.copyWith(
+        snoozeMinutes: selected.$1,
+        maximumSnoozeCount: selected.$2,
+        clearMaximumSnoozeCount: selected.$2 == null,
+      );
+    });
+  }
+
+  Future<void> _pickVolumeButtonAction() async {
+    final selected = await showDialog<AlarmVolumeButtonAction>(
+      context: context,
+      builder: (dialogContext) => SimpleDialog(
+        title: const Text('볼륨 버튼 동작'),
+        children: AlarmVolumeButtonAction.values
+            .map(
+              (action) => SimpleDialogOption(
+                onPressed: () => Navigator.of(dialogContext).pop(action),
+                child: Text(action.label),
+              ),
+            )
+            .toList(),
+      ),
+    );
+    if (selected != null && mounted) {
+      setState(() {
+        _alarmSettings = _alarmSettings.copyWith(volumeButtonAction: selected);
+      });
+    }
+  }
+
   void _showExcludedHolidays() {
     final holidays = TrainingCalendar.holidaysForWeekdays(_weekdays);
     showModalBottomSheet<void>(
@@ -210,6 +293,7 @@ class _ScheduleEditScreenState extends State<ScheduleEditScreen> {
       date: _recurrence == ScheduleRecurrence.once ? _date : null,
       excludePublicHolidays: _excludePublicHolidays,
       enabled: _enabled,
+      alarmSettings: _alarmSettings,
     );
     final conflict = findScheduleConflict(schedule, widget.existingSchedules);
     if (conflict != null) {
@@ -377,6 +461,85 @@ class _ScheduleEditScreenState extends State<ScheduleEditScreen> {
                 onTap: _pickTime,
               ),
             ),
+            const SizedBox(height: 24),
+            const _SectionTitle(
+              title: '알람 설정',
+              description: '알람이 울릴 때 사용할 소리와 동작을 설정합니다.',
+            ),
+            const SizedBox(height: 12),
+            Card(
+              child: Column(
+                children: [
+                  ListTile(
+                    leading: const Icon(Icons.music_note_outlined),
+                    title: const Text('알람음'),
+                    subtitle: Text(_alarmSettings.sound.label),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: widget.onPickAlarmSound == null
+                        ? null
+                        : _pickAlarmSound,
+                  ),
+                  const Divider(height: 1),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+                    child: Row(
+                      children: [
+                        const Expanded(child: Text('음량')),
+                        Text('${_alarmSettings.volumePercent}%'),
+                      ],
+                    ),
+                  ),
+                  Slider(
+                    value: _alarmSettings.volumePercent.toDouble(),
+                    min: 0,
+                    max: 100,
+                    divisions: 20,
+                    label: '${_alarmSettings.volumePercent}%',
+                    onChanged: (value) => setState(() {
+                      _alarmSettings = _alarmSettings.copyWith(
+                        volumePercent: value.round(),
+                      );
+                    }),
+                  ),
+                  SwitchListTile(
+                    title: const Text('진동'),
+                    value: _alarmSettings.vibrationEnabled,
+                    onChanged: (value) => setState(() {
+                      _alarmSettings = _alarmSettings.copyWith(
+                        vibrationEnabled: value,
+                      );
+                    }),
+                  ),
+                  SwitchListTile(
+                    title: const Text('점점 크게'),
+                    subtitle: const Text('처음 30초 동안 설정 음량까지 높입니다.'),
+                    value: _alarmSettings.gradualVolumeEnabled,
+                    onChanged: (value) => setState(() {
+                      _alarmSettings = _alarmSettings.copyWith(
+                        gradualVolumeEnabled: value,
+                      );
+                    }),
+                  ),
+                  ListTile(
+                    title: const Text('다시 알림'),
+                    subtitle: Text(
+                      _snoozeLabel(
+                        _alarmSettings.snoozeMinutes,
+                        _alarmSettings.maximumSnoozeCount,
+                      ),
+                    ),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: _pickSnooze,
+                  ),
+                  ListTile(
+                    title: const Text('볼륨 버튼'),
+                    subtitle: Text(_alarmSettings.volumeButtonAction.label),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: _pickVolumeButtonAction,
+                  ),
+                ],
+              ),
+            ),
             const SizedBox(height: 12),
             SwitchListTile(
               contentPadding: const EdgeInsets.symmetric(horizontal: 4),
@@ -413,6 +576,9 @@ class _ScheduleEditScreenState extends State<ScheduleEditScreen> {
     );
   }
 }
+
+String _snoozeLabel(int minutes, int? maximum) =>
+    '$minutes분 · ${maximum == null ? '제한 없음' : '최대 $maximum회'}';
 
 class _TimeWheelPicker extends StatefulWidget {
   const _TimeWheelPicker({required this.initialTime});
