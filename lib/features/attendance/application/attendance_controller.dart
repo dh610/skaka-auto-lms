@@ -642,6 +642,7 @@ class AttendanceController extends ChangeNotifier {
     required DateTime koreaDate,
     required String refreshMessage,
   }) async {
+    final reconciliationRevision = _sessionRevision;
     final pendingAction = _pendingActionConfirmation;
     if (pendingAction == null) {
       await _publishSnapshot(
@@ -665,6 +666,10 @@ class AttendanceController extends ChangeNotifier {
       message: '${pendingAction.label} 처리 결과를 아직 서버 상태에서 확인하지 못했습니다.',
       koreaDate: koreaDate,
     );
+    if (!_operationIsCurrent(reconciliationRevision, koreaDate) ||
+        _pendingActionConfirmation != pendingAction) {
+      return;
+    }
     _setState(
       message:
           '${pendingAction.label} 처리 결과를 아직 확인하지 못했습니다. '

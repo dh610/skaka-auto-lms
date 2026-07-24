@@ -1785,6 +1785,142 @@ void main() {
   );
 
   test(
+    'profile reset wins over a gated uncertain-action reconciliation',
+    () async {
+      final store = _FakeAttendanceStatusStore();
+      final gateway = _FakeAttendanceGateway()
+        ..recordError = TimeoutException('timed out')
+        ..reflectRecordedAction = false;
+      final controller = AttendanceController(
+        profile,
+        gateway,
+        isAndroid: true,
+        statusStore: store,
+        now: () => DateTime.utc(2026, 7, 24, 3),
+      );
+      await controller.handleCallback(
+        Uri.parse('https://att.skala-ai.com/?token=test-token'),
+      );
+      final readyRevision = await _prepareAction(
+        controller,
+        AttendanceAction.leave,
+      );
+      await controller.performAction(
+        AttendanceAction.leave,
+        readyActionRevision: readyRevision,
+      );
+      final saveGate = Completer<void>();
+      final saveStarted = Completer<void>();
+      store
+        ..saveGate = saveGate
+        ..saveStarted = saveStarted;
+
+      final refresh = controller.refreshStatus();
+      await saveStarted.future;
+      controller.updateProfile(
+        const UserProfile(
+          name: '다른 사용자',
+          region: CampusRegion.pangyo5f,
+          classNumber: 9,
+        ),
+      );
+      saveGate.complete();
+      await refresh;
+
+      expect(controller.message, '사용자 정보가 변경되었습니다. 다시 인증해주세요.');
+      expect(controller.retryRequiresAuthentication, isTrue);
+      expect(controller.snapshot, isNull);
+      controller.dispose();
+    },
+  );
+
+  test(
+    'date reset wins over a gated uncertain-action reconciliation',
+    () async {
+      var now = DateTime.utc(2026, 7, 24, 14, 59, 59);
+      final store = _FakeAttendanceStatusStore();
+      final gateway = _FakeAttendanceGateway()
+        ..recordError = TimeoutException('timed out')
+        ..reflectRecordedAction = false;
+      final controller = AttendanceController(
+        profile,
+        gateway,
+        isAndroid: true,
+        statusStore: store,
+        now: () => now,
+      );
+      await controller.handleCallback(
+        Uri.parse('https://att.skala-ai.com/?token=test-token'),
+      );
+      final readyRevision = await _prepareAction(
+        controller,
+        AttendanceAction.leave,
+      );
+      await controller.performAction(
+        AttendanceAction.leave,
+        readyActionRevision: readyRevision,
+      );
+      final saveGate = Completer<void>();
+      final saveStarted = Completer<void>();
+      store
+        ..saveGate = saveGate
+        ..saveStarted = saveStarted;
+
+      final refresh = controller.refreshStatus();
+      await saveStarted.future;
+      now = DateTime.utc(2026, 7, 24, 15, 0, 1);
+      expect(controller.invalidateExpiredDailyState(), isTrue);
+      saveGate.complete();
+      await refresh;
+
+      expect(controller.message, '날짜가 바뀌어 오늘 출결 정보를 다시 확인해야 합니다.');
+      expect(controller.retryRequiresAuthentication, isTrue);
+      expect(controller.snapshot, isNull);
+      controller.dispose();
+    },
+  );
+
+  test(
+    'dispose cancels a gated uncertain-action reconciliation continuation',
+    () async {
+      final store = _FakeAttendanceStatusStore();
+      final gateway = _FakeAttendanceGateway()
+        ..recordError = TimeoutException('timed out')
+        ..reflectRecordedAction = false;
+      final controller = AttendanceController(
+        profile,
+        gateway,
+        isAndroid: true,
+        statusStore: store,
+        now: () => DateTime.utc(2026, 7, 24, 3),
+      );
+      await controller.handleCallback(
+        Uri.parse('https://att.skala-ai.com/?token=test-token'),
+      );
+      final readyRevision = await _prepareAction(
+        controller,
+        AttendanceAction.leave,
+      );
+      await controller.performAction(
+        AttendanceAction.leave,
+        readyActionRevision: readyRevision,
+      );
+      final saveGate = Completer<void>();
+      final saveStarted = Completer<void>();
+      store
+        ..saveGate = saveGate
+        ..saveStarted = saveStarted;
+
+      final refresh = controller.refreshStatus();
+      await saveStarted.future;
+      controller.dispose();
+      saveGate.complete();
+
+      await expectLater(refresh, completes);
+    },
+  );
+
+  test(
     'clears an authenticated snapshot when the Korean date changes',
     () async {
       var now = DateTime.utc(2026, 7, 24, 14, 59, 59);
