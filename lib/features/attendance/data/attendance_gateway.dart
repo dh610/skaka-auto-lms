@@ -2,6 +2,10 @@ import '../../profile/domain/user_profile.dart';
 import '../../schedule/domain/attendance_schedule.dart';
 import '../domain/attendance_snapshot.dart';
 
+class AttendanceAuthenticationRejectedException implements Exception {
+  const AttendanceAuthenticationRejectedException();
+}
+
 class AttendanceActionRejectedException implements Exception {
   const AttendanceActionRejectedException(this.message);
 

@@ -240,6 +240,15 @@ class AttendanceController extends ChangeNotifier {
             ? 'Chrome에서 Google 계정을 선택하세요. 인증 후 앱으로 돌아옵니다.'
             : '앱 내 Safari 화면에서 Google 계정을 선택한 뒤 SKALA 웹 화면에서 원하는 동작을 수행하세요.',
       );
+    } on AttendanceAuthenticationRejectedException {
+      if (!_operationIsCurrent(sessionRevision, operationDate)) return;
+      _awaitingAuthenticationCallback = false;
+      _setState(
+        message: 'SKALA Wi-Fi에 연결 후 다시 시도해주세요.',
+        messageKind: AttendanceMessageKind.warning,
+        hasError: true,
+        recovery: _AttendanceRecovery.authenticate,
+      );
     } catch (error) {
       if (!_operationIsCurrent(sessionRevision, operationDate)) return;
       _awaitingAuthenticationCallback = false;

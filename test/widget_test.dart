@@ -367,6 +367,47 @@ void main() {
     schedules.dispose();
   });
 
+  testWidgets('authentication rejection shows only the SKALA Wi-Fi guidance', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    const profile = UserProfile(
+      name: '윤동현',
+      region: CampusRegion.pangyo5f,
+      classNumber: 8,
+    );
+    final schedules = ScheduleController(ScheduleStore());
+    await schedules.load();
+    final gateway = _WidgetTestAttendanceGateway(
+      authenticationError: const AttendanceAuthenticationRejectedException(),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: AttendanceScreen(
+          profile: profile,
+          scheduleController: schedules,
+          notificationScheduler: _NoOpNotificationScheduler(),
+          onEditProfile: () async {},
+          gateway: gateway,
+          appLinkStream: const Stream.empty(),
+          isAndroid: true,
+          callbackLinkSettings: _FakeCallbackLinkSettings(enabled: true),
+          now: () => DateTime.utc(2026, 7, 24, 3),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('출결 상태 새로고침'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('SKALA Wi-Fi에 연결 후 다시 시도해주세요.'), findsOneWidget);
+    expect(find.textContaining('Google 인증을 시작하지 못했습니다'), findsNothing);
+    expect(find.textContaining('SKALA 서버가 요청을 처리하지 못했습니다'), findsNothing);
+    expect(find.textContaining('새로고침 버튼을 눌러'), findsNothing);
+    schedules.dispose();
+  });
+
   testWidgets('refresh reuses a valid token and never records an action', (
     tester,
   ) async {
@@ -3160,6 +3201,7 @@ class _WidgetTestAttendanceGateway implements AttendanceGateway {
     this.fetchGate,
     this.recordGate,
     this.authenticationGate,
+    this.authenticationError,
   });
 
   AttendanceSnapshot snapshot;
@@ -3167,6 +3209,7 @@ class _WidgetTestAttendanceGateway implements AttendanceGateway {
   final Completer<void>? fetchGate;
   final Completer<void>? recordGate;
   final Completer<void>? authenticationGate;
+  final Object? authenticationError;
   UserProfile? authenticationProfile;
   AttendanceAction? recordedAction;
   Object? fetchError;
@@ -3181,6 +3224,7 @@ class _WidgetTestAttendanceGateway implements AttendanceGateway {
     authenticationCallCount++;
     authenticationProfile = profile;
     await authenticationGate?.future;
+    if (authenticationError case final error?) throw error;
   }
 
   @override

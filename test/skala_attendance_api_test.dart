@@ -43,6 +43,27 @@ void main() {
     api.close();
   });
 
+  test('authentication rejection has a dedicated failure type', () async {
+    final api = SkalaAttendanceApi(
+      client: MockClient(
+        (_) async =>
+            http.Response(jsonEncode({'error': 'network not allowed'}), 403),
+      ),
+    );
+
+    await expectLater(
+      api.startBrowserAuthentication(
+        const UserProfile(
+          name: '윤동현',
+          region: CampusRegion.pangyo5f,
+          classNumber: 8,
+        ),
+      ),
+      throwsA(isA<AttendanceAuthenticationRejectedException>()),
+    );
+    api.close();
+  });
+
   test('record API sends bearer token and SKALA event type', () async {
     late http.Request captured;
     final client = MockClient((request) async {
