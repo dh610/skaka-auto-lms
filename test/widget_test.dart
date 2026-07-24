@@ -405,6 +405,11 @@ void main() {
     expect(find.textContaining('Google 인증을 시작하지 못했습니다'), findsNothing);
     expect(find.textContaining('SKALA 서버가 요청을 처리하지 못했습니다'), findsNothing);
     expect(find.textContaining('새로고침 버튼을 눌러'), findsNothing);
+    final warning = find.text('SKALA Wi-Fi에 연결 후 다시 시도해주세요.');
+    expect(
+      tester.widget<Text>(warning).style?.color,
+      Theme.of(tester.element(warning)).colorScheme.onErrorContainer,
+    );
     schedules.dispose();
   });
 

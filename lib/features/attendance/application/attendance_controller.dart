@@ -245,7 +245,6 @@ class AttendanceController extends ChangeNotifier {
       _awaitingAuthenticationCallback = false;
       _setState(
         message: 'SKALA Wi-Fi에 연결 후 다시 시도해주세요.',
-        messageKind: AttendanceMessageKind.warning,
         hasError: true,
         recovery: _AttendanceRecovery.authenticate,
       );
