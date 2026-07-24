@@ -44,6 +44,12 @@ data class AlarmData(
     fun canSnooze(): Boolean =
         maximumSnoozeCount == null || snoozeCount < maximumSnoozeCount
 
+    fun shouldSnoozeFromVolumeButton(): Boolean {
+        val repeatConfigured =
+            maximumSnoozeCount == null || maximumSnoozeCount > 1
+        return repeatConfigured && canSnooze()
+    }
+
     companion object {
         fun fromMap(value: Map<*, *>): AlarmData? = runCatching {
             AlarmData(

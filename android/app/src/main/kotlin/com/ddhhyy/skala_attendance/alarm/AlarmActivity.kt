@@ -2,12 +2,12 @@ package com.ddhhyy.skala_attendance.alarm
 
 import android.app.Activity
 import android.graphics.Color
+import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.view.Gravity
 import android.view.KeyEvent
 import android.view.View
 import android.view.WindowManager
-import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.Space
 import android.widget.TextView
@@ -43,15 +43,20 @@ class AlarmActivity : Activity() {
         if (keyCode == KeyEvent.KEYCODE_VOLUME_UP ||
             keyCode == KeyEvent.KEYCODE_VOLUME_DOWN
         ) {
-            startService(
-                android.content.Intent(this, AlarmRingingService::class.java)
-                    .setAction(AlarmContract.actionSilence),
-            )
-            Toast.makeText(
-                this,
-                "알람음과 진동을 껐습니다.",
-                Toast.LENGTH_SHORT,
-            ).show()
+            val current = alarm ?: return true
+            if (current.shouldSnoozeFromVolumeButton()) {
+                perform(AlarmContract.actionSnooze)
+            } else {
+                startService(
+                    android.content.Intent(this, AlarmRingingService::class.java)
+                        .setAction(AlarmContract.actionSilence),
+                )
+                Toast.makeText(
+                    this,
+                    "알람음과 진동을 껐습니다.",
+                    Toast.LENGTH_SHORT,
+                ).show()
+            }
             return true
         }
         return super.onKeyDown(keyCode, event)
@@ -63,32 +68,61 @@ class AlarmActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
             setPadding(padding, padding, padding, padding)
-            setBackgroundColor(Color.rgb(12, 20, 34))
+            background = GradientDrawable(
+                GradientDrawable.Orientation.TOP_BOTTOM,
+                intArrayOf(
+                    Color.rgb(8, 16, 31),
+                    Color.rgb(15, 29, 51),
+                ),
+            )
 
             addView(Space(context), LinearLayout.LayoutParams(1, 0, 1f))
-            addView(textView(currentTime(), 58f, Color.WHITE))
-            addView(textView("${alarm.actionLabel} 시간입니다", 28f, Color.WHITE).apply {
-                setPadding(0, padding, 0, padding)
-            })
+            addView(textView(currentTime(), 64f, Color.WHITE))
             addView(
-                button("Google 인증 후 출결 확인") {
-                    perform(AlarmContract.actionOpenAttendance)
+                textView(
+                    "${alarm.actionLabel} 시간입니다",
+                    29f,
+                    Color.WHITE,
+                ).apply {
+                    setPadding(0, padding / 2, 0, 0)
                 },
-                matchWidth(),
             )
-            if (alarm.canSnooze()) {
-                addView(
-                    button("${alarm.snoozeMinutes}분 뒤 다시 알림") {
-                        perform(AlarmContract.actionSnooze)
-                    },
-                    matchWidth(),
-                )
-            }
             addView(
-                button("끄기") { perform(AlarmContract.actionDismiss) },
-                matchWidth(),
+                textView(
+                    "손잡이를 끝까지 밀면 Google 인증 화면으로 이동합니다.",
+                    14f,
+                    Color.rgb(181, 195, 219),
+                ).apply {
+                    setPadding(0, padding / 2, 0, padding)
+                },
             )
+
             addView(Space(context), LinearLayout.LayoutParams(1, 0, 1f))
+
+            addView(
+                SwipeToAuthenticateView(context).apply {
+                    setOnConfirmedListener {
+                        perform(AlarmContract.actionOpenAttendance)
+                    }
+                },
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    (104 * resources.displayMetrics.density).toInt(),
+                ),
+            )
+            addView(
+                textView(
+                    if (alarm.shouldSnoozeFromVolumeButton()) {
+                        "볼륨 버튼 · ${alarm.snoozeMinutes}분 뒤 다시 알림"
+                    } else {
+                        "볼륨 버튼 · 알람음과 진동 끄기"
+                    },
+                    13f,
+                    Color.rgb(151, 169, 199),
+                ).apply {
+                    setPadding(0, padding / 2, 0, 0)
+                },
+            )
         }
     }
 
@@ -99,21 +133,6 @@ class AlarmActivity : Activity() {
             setTextColor(color)
             gravity = Gravity.CENTER
         }
-
-    private fun button(label: String, onClick: () -> Unit) =
-        Button(this).apply {
-            text = label
-            textSize = 17f
-            setOnClickListener { onClick() }
-        }
-
-    private fun matchWidth() = LinearLayout.LayoutParams(
-        LinearLayout.LayoutParams.MATCH_PARENT,
-        LinearLayout.LayoutParams.WRAP_CONTENT,
-    ).apply {
-        val margin = (6 * resources.displayMetrics.density).toInt()
-        setMargins(0, margin, 0, margin)
-    }
 
     private fun currentTime() =
         SimpleDateFormat("a h:mm", Locale.KOREAN).format(Date())
