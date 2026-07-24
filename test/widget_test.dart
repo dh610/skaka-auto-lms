@@ -303,6 +303,165 @@ void main() {
       tester.getTopLeft(find.text('오늘 출결 · 7월 24일(금)')).dy,
       lessThan(tester.getTopLeft(find.text('오늘 예정된 동작')).dy),
     );
+    final checkIn = tester.getTopLeft(
+      find.byKey(const ValueKey('attendance-status-checkIn')),
+    );
+    final checkOut = tester.getTopLeft(
+      find.byKey(const ValueKey('attendance-status-checkOut')),
+    );
+    final leave = tester.getTopLeft(
+      find.byKey(const ValueKey('attendance-status-leave')),
+    );
+    final returnFromLeave = tester.getTopLeft(
+      find.byKey(const ValueKey('attendance-status-returnFromLeave')),
+    );
+    expect(checkIn.dy, moreOrLessEquals(checkOut.dy));
+    expect(leave.dy, moreOrLessEquals(returnFromLeave.dy));
+    expect(checkIn.dx, lessThan(checkOut.dx));
+    expect(leave.dx, lessThan(returnFromLeave.dx));
+    expect(checkIn.dy, lessThan(leave.dy));
+
+    await links.close();
+    schedules.dispose();
+  });
+
+  testWidgets('large accessibility text stacks attendance status tiles', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    const profile = UserProfile(
+      name: '윤동현',
+      region: CampusRegion.pangyo5f,
+      classNumber: 8,
+    );
+    final schedules = ScheduleController(ScheduleStore());
+    await schedules.load();
+    final links = StreamController<Uri>();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: MediaQuery(
+          data: const MediaQueryData(textScaler: TextScaler.linear(1.5)),
+          child: AttendanceScreen(
+            profile: profile,
+            scheduleController: schedules,
+            notificationScheduler: _NoOpNotificationScheduler(),
+            onEditProfile: () async {},
+            gateway: _WidgetTestAttendanceGateway(
+              snapshot: const AttendanceSnapshot(
+                networkAllowed: true,
+                checkInTime: '2026-07-24T00:01:23.000Z',
+                checkOutTime: '2026-07-24T09:02:59.000Z',
+                earlyLeaveTime: '2026-07-24T03:34:56.000Z',
+                returnTime: '2026-07-24T04:45:00.000Z',
+              ),
+            ),
+            appLinkStream: links.stream,
+            isAndroid: true,
+            callbackLinkSettings: _FakeCallbackLinkSettings(enabled: true),
+            now: () => DateTime.utc(2026, 7, 24, 3),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    links.add(Uri.parse('https://att.skala-ai.com?token=test-token'));
+    await tester.pumpAndSettle();
+
+    final positions = [
+      tester.getTopLeft(
+        find.byKey(const ValueKey('attendance-status-checkIn')),
+      ),
+      tester.getTopLeft(
+        find.byKey(const ValueKey('attendance-status-checkOut')),
+      ),
+      tester.getTopLeft(find.byKey(const ValueKey('attendance-status-leave'))),
+      tester.getTopLeft(
+        find.byKey(const ValueKey('attendance-status-returnFromLeave')),
+      ),
+    ];
+    expect(positions.map((position) => position.dx).toSet(), hasLength(1));
+    for (var index = 1; index < positions.length; index++) {
+      expect(positions[index - 1].dy, lessThan(positions[index].dy));
+    }
+    expect(tester.takeException(), isNull);
+
+    await links.close();
+    schedules.dispose();
+  });
+
+  testWidgets('attendance status tiles adapt to phone width', (tester) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(360, 800);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+    SharedPreferences.setMockInitialValues({});
+    const profile = UserProfile(
+      name: '윤동현',
+      region: CampusRegion.pangyo5f,
+      classNumber: 8,
+    );
+    final schedules = ScheduleController(ScheduleStore());
+    await schedules.load();
+    final links = StreamController<Uri>();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: AttendanceScreen(
+          profile: profile,
+          scheduleController: schedules,
+          notificationScheduler: _NoOpNotificationScheduler(),
+          onEditProfile: () async {},
+          gateway: _WidgetTestAttendanceGateway(
+            snapshot: const AttendanceSnapshot(
+              networkAllowed: true,
+              checkInTime: '2026-07-24T00:01:23.000Z',
+              checkOutTime: '2026-07-24T09:02:59.000Z',
+              earlyLeaveTime: '2026-07-24T03:34:56.000Z',
+              returnTime: '2026-07-24T04:45:00.000Z',
+            ),
+          ),
+          appLinkStream: links.stream,
+          isAndroid: true,
+          callbackLinkSettings: _FakeCallbackLinkSettings(enabled: true),
+          now: () => DateTime.utc(2026, 7, 24, 3),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    links.add(Uri.parse('https://att.skala-ai.com?token=test-token'));
+    await tester.pumpAndSettle();
+
+    Offset tilePosition(AttendanceAction action) => tester.getTopLeft(
+      find.byKey(ValueKey('attendance-status-${action.name}')),
+    );
+
+    expect(
+      tilePosition(AttendanceAction.checkIn).dy,
+      moreOrLessEquals(tilePosition(AttendanceAction.checkOut).dy),
+    );
+    expect(
+      tilePosition(AttendanceAction.leave).dy,
+      moreOrLessEquals(tilePosition(AttendanceAction.returnFromLeave).dy),
+    );
+
+    tester.view.physicalSize = const Size(320, 800);
+    await tester.pumpAndSettle();
+
+    final narrowPositions = AttendanceAction.values
+        .map(tilePosition)
+        .toList(growable: false);
+    expect(
+      narrowPositions.map((position) => position.dx).toSet(),
+      hasLength(1),
+    );
+    for (var index = 1; index < narrowPositions.length; index++) {
+      expect(
+        narrowPositions[index - 1].dy,
+        lessThan(narrowPositions[index].dy),
+      );
+    }
+    expect(tester.takeException(), isNull);
 
     await links.close();
     schedules.dispose();
@@ -354,7 +513,7 @@ void main() {
   });
 
   testWidgets(
-    'confirmed attendance action highlights its row and shows notice',
+    'confirmed attendance action highlights its tile and shows notice',
     (tester) async {
       SharedPreferences.setMockInitialValues({});
       const profile = UserProfile(
@@ -379,16 +538,19 @@ void main() {
 
       await tester.pumpWidget(
         MaterialApp(
-          home: AttendanceScreen(
-            profile: profile,
-            scheduleController: schedules,
-            notificationScheduler: _NoOpNotificationScheduler(),
-            onEditProfile: () async {},
-            gateway: gateway,
-            appLinkStream: links.stream,
-            isAndroid: true,
-            callbackLinkSettings: _FakeCallbackLinkSettings(enabled: true),
-            now: () => DateTime.utc(2026, 7, 24, 3),
+          home: MediaQuery(
+            data: const MediaQueryData(textScaler: TextScaler.linear(1.5)),
+            child: AttendanceScreen(
+              profile: profile,
+              scheduleController: schedules,
+              notificationScheduler: _NoOpNotificationScheduler(),
+              onEditProfile: () async {},
+              gateway: gateway,
+              appLinkStream: links.stream,
+              isAndroid: true,
+              callbackLinkSettings: _FakeCallbackLinkSettings(enabled: true),
+              now: () => DateTime.utc(2026, 7, 24, 3),
+            ),
           ),
         ),
       );
@@ -397,6 +559,7 @@ void main() {
       await tester.pumpAndSettle();
 
       await tester.ensureVisible(find.widgetWithText(FilledButton, '외출'));
+      await tester.pumpAndSettle();
       await tester.tap(find.widgetWithText(FilledButton, '외출'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('외출 전송'));
@@ -404,8 +567,13 @@ void main() {
 
       expect(gateway.recordedAction, AttendanceAction.leave);
       expect(find.text('12:34'), findsOneWidget);
-      expect(find.text('방금 처리됨'), findsOneWidget);
+      final leaveTile = find.byKey(const ValueKey('attendance-status-leave'));
+      expect(
+        find.descendant(of: leaveTile, matching: find.text('방금 처리됨')),
+        findsOneWidget,
+      );
       expect(find.text('외출이 완료되었습니다.'), findsOneWidget);
+      expect(tester.takeException(), isNull);
 
       await tester.pump(const Duration(seconds: 5, milliseconds: 100));
       expect(find.text('방금 처리됨'), findsNothing);

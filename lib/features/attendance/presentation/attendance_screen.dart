@@ -1013,26 +1013,9 @@ class _StatusCard extends StatelessWidget {
               ),
             ],
             const SizedBox(height: 12),
-            _AttendanceStatusRow(
-              action: AttendanceAction.checkIn,
-              value: snapshot.checkInTime,
-              highlighted: highlightedAction == AttendanceAction.checkIn,
-            ),
-            _AttendanceStatusRow(
-              action: AttendanceAction.checkOut,
-              value: snapshot.checkOutTime,
-              highlighted: highlightedAction == AttendanceAction.checkOut,
-            ),
-            _AttendanceStatusRow(
-              action: AttendanceAction.leave,
-              value: snapshot.earlyLeaveTime,
-              highlighted: highlightedAction == AttendanceAction.leave,
-            ),
-            _AttendanceStatusRow(
-              action: AttendanceAction.returnFromLeave,
-              value: snapshot.returnTime,
-              highlighted:
-                  highlightedAction == AttendanceAction.returnFromLeave,
+            _AttendanceStatusTiles(
+              snapshot: snapshot,
+              highlightedAction: highlightedAction,
             ),
             const SizedBox(height: 16),
             if (hasError) ...[
@@ -1090,8 +1073,58 @@ class _StatusCard extends StatelessWidget {
   }
 }
 
-class _AttendanceStatusRow extends StatelessWidget {
-  const _AttendanceStatusRow({
+class _AttendanceStatusTiles extends StatelessWidget {
+  const _AttendanceStatusTiles({
+    required this.snapshot,
+    required this.highlightedAction,
+  });
+
+  final AttendanceSnapshot snapshot;
+  final AttendanceAction? highlightedAction;
+
+  @override
+  Widget build(BuildContext context) {
+    final statuses = [
+      (AttendanceAction.checkIn, snapshot.checkInTime),
+      (AttendanceAction.checkOut, snapshot.checkOutTime),
+      (AttendanceAction.leave, snapshot.earlyLeaveTime),
+      (AttendanceAction.returnFromLeave, snapshot.returnTime),
+    ];
+    final textScaler = MediaQuery.textScalerOf(context);
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        const spacing = 8.0;
+        const minimumTileWidth = 132.0;
+        final twoColumnTileWidth = (constraints.maxWidth - spacing) / 2;
+        final useTwoColumns =
+            twoColumnTileWidth >= minimumTileWidth &&
+            textScaler.scale(16) <= 20;
+        final tileWidth = useTwoColumns
+            ? twoColumnTileWidth
+            : constraints.maxWidth;
+
+        return Wrap(
+          spacing: spacing,
+          runSpacing: spacing,
+          children: statuses.map((status) {
+            return SizedBox(
+              width: tileWidth,
+              child: _AttendanceStatusTile(
+                action: status.$1,
+                value: status.$2,
+                highlighted: highlightedAction == status.$1,
+              ),
+            );
+          }).toList(),
+        );
+      },
+    );
+  }
+}
+
+class _AttendanceStatusTile extends StatelessWidget {
+  const _AttendanceStatusTile({
     required this.action,
     required this.value,
     required this.highlighted,
@@ -1107,42 +1140,56 @@ class _AttendanceStatusRow extends StatelessWidget {
     return AnimatedContainer(
       key: ValueKey('attendance-status-${action.name}'),
       duration: const Duration(milliseconds: 250),
-      margin: const EdgeInsets.symmetric(vertical: 2),
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+      constraints: const BoxConstraints(minHeight: 86),
+      padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: highlighted
             ? colors.primaryContainer.withValues(alpha: 0.8)
-            : Colors.transparent,
-        borderRadius: BorderRadius.circular(10),
+            : colors.surfaceContainerHighest.withValues(alpha: 0.55),
+        border: Border.all(
+          color: highlighted ? colors.primary : colors.outlineVariant,
+        ),
+        borderRadius: BorderRadius.circular(12),
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          SizedBox(
-            width: 44,
-            child: Text(
-              action.label,
-              style: Theme.of(
-                context,
-              ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w700),
+          Text(
+            action.label,
+            style: Theme.of(context).textTheme.labelMedium?.copyWith(
+              color: colors.onSurfaceVariant,
+              fontWeight: FontWeight.w700,
             ),
           ),
-          Expanded(
-            child: Text(
-              formatAttendanceTime(value),
-              style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                fontFeatures: const [FontFeature.tabularFigures()],
-              ),
+          const SizedBox(height: 3),
+          Text(
+            formatAttendanceTime(value),
+            style: Theme.of(context).textTheme.titleLarge?.copyWith(
+              fontFeatures: const [FontFeature.tabularFigures()],
+              fontWeight: FontWeight.w700,
             ),
           ),
           if (highlighted) ...[
-            Icon(Icons.check_circle_rounded, size: 18, color: colors.primary),
-            const SizedBox(width: 5),
-            Text(
-              '방금 처리됨',
-              style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                color: colors.primary,
-                fontWeight: FontWeight.w700,
-              ),
+            const SizedBox(height: 6),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.check_circle_rounded,
+                  size: 18,
+                  color: colors.primary,
+                ),
+                const SizedBox(width: 5),
+                Flexible(
+                  child: Text(
+                    '방금 처리됨',
+                    style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                      color: colors.primary,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ],
             ),
           ],
         ],
