@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../application/schedule_controller.dart';
@@ -5,10 +7,33 @@ import '../domain/attendance_schedule.dart';
 import 'schedule_edit_screen.dart';
 import 'schedule_visuals.dart';
 
-class ScheduleListScreen extends StatelessWidget {
+class ScheduleListScreen extends StatefulWidget {
   const ScheduleListScreen({super.key, required this.controller});
 
   final ScheduleController controller;
+
+  @override
+  State<ScheduleListScreen> createState() => _ScheduleListScreenState();
+}
+
+class _ScheduleListScreenState extends State<ScheduleListScreen> {
+  Timer? _clockRefresh;
+
+  ScheduleController get controller => widget.controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _clockRefresh = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _clockRefresh?.cancel();
+    super.dispose();
+  }
 
   Future<void> _openEditor(
     BuildContext context, [
@@ -18,6 +43,9 @@ class ScheduleListScreen extends StatelessWidget {
       MaterialPageRoute(
         builder: (_) => ScheduleEditScreen(
           initialSchedule: schedule,
+          initialAlarmSettings:
+              schedule?.alarmSettings ?? controller.defaultAlarmSettings,
+          onPickAlarmSound: controller.pickAlarmSound,
           existingSchedules: controller.schedules,
         ),
       ),
@@ -43,6 +71,10 @@ class ScheduleListScreen extends StatelessWidget {
         context,
       ).showSnackBar(SnackBar(content: Text(conflict.message)));
     }
+  }
+
+  Future<void> _resumeAfterNextOccurrence(AttendanceSchedule schedule) async {
+    await controller.resumeAfterNextOccurrence(schedule, now: DateTime.now());
   }
 
   Future<void> _confirmDelete(
@@ -136,57 +168,127 @@ class ScheduleListScreen extends StatelessWidget {
                   ),
                 )
               else
-                ...controller.schedules.map(
-                  (schedule) => Padding(
+                ...controller.schedules.map((schedule) {
+                  final now = DateTime.now();
+                  final displayedEnabled = controller.isDisplayedEnabled(
+                    schedule,
+                    now,
+                  );
+                  final automaticResumeAt = controller.automaticResumeAt(
+                    schedule,
+                    now: now,
+                  );
+                  final suggestedResumeAt = schedule.enabled
+                      ? null
+                      : controller.suggestedResumeAt(schedule, now: now);
+                  return Padding(
                     padding: const EdgeInsets.only(bottom: 8),
                     child: Card(
-                      child: ListTile(
-                        enabled: schedule.enabled,
-                        onTap: () => _openEditor(context, schedule),
-                        contentPadding: const EdgeInsets.fromLTRB(16, 8, 8, 8),
-                        leading: CircleAvatar(
-                          backgroundColor: Theme.of(
-                            context,
-                          ).colorScheme.secondaryContainer,
-                          foregroundColor: Theme.of(
-                            context,
-                          ).colorScheme.onSecondaryContainer,
-                          child: Icon(schedule.action.icon),
-                        ),
-                        title: Text(
-                          '${schedule.displayTime} · ${schedule.action.label}',
-                          style: const TextStyle(fontWeight: FontWeight.w700),
-                        ),
-                        subtitle: Padding(
-                          padding: const EdgeInsets.only(top: 3),
-                          child: Text(schedule.recurrenceLabel),
-                        ),
-                        trailing: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Switch(
-                              value: schedule.enabled,
-                              onChanged: (enabled) =>
-                                  _setEnabled(context, schedule, enabled),
+                      clipBehavior: Clip.antiAlias,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          ListTile(
+                            onTap: () => _openEditor(context, schedule),
+                            contentPadding: const EdgeInsets.fromLTRB(
+                              16,
+                              8,
+                              8,
+                              8,
                             ),
-                            IconButton(
-                              tooltip: '삭제',
-                              onPressed: () =>
-                                  _confirmDelete(context, schedule),
-                              icon: const Icon(Icons.delete_outline),
+                            leading: Opacity(
+                              opacity: displayedEnabled ? 1 : 0.55,
+                              child: CircleAvatar(
+                                backgroundColor: Theme.of(
+                                  context,
+                                ).colorScheme.secondaryContainer,
+                                foregroundColor: Theme.of(
+                                  context,
+                                ).colorScheme.onSecondaryContainer,
+                                child: Icon(schedule.action.icon),
+                              ),
                             ),
-                          ],
-                        ),
+                            title: Opacity(
+                              opacity: displayedEnabled ? 1 : 0.55,
+                              child: Text(
+                                '${schedule.displayTime} · '
+                                '${schedule.action.label}',
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                            subtitle: Opacity(
+                              opacity: displayedEnabled ? 1 : 0.55,
+                              child: Padding(
+                                padding: const EdgeInsets.only(top: 3),
+                                child: Text(schedule.recurrenceLabel),
+                              ),
+                            ),
+                            trailing: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Opacity(
+                                  opacity: displayedEnabled ? 1 : 0.55,
+                                  child: Switch(
+                                    value: displayedEnabled,
+                                    onChanged: (enabled) =>
+                                        _setEnabled(context, schedule, enabled),
+                                  ),
+                                ),
+                                IconButton(
+                                  tooltip: '삭제',
+                                  onPressed: () =>
+                                      _confirmDelete(context, schedule),
+                                  icon: const Icon(Icons.delete_outline),
+                                ),
+                              ],
+                            ),
+                          ),
+                          if (automaticResumeAt != null)
+                            Padding(
+                              padding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
+                              child: Text(
+                                '${_formatResumeAt(automaticResumeAt)}부터 '
+                                '자동으로 다시 켜집니다.',
+                                style: Theme.of(context).textTheme.bodySmall
+                                    ?.copyWith(
+                                      color: Theme.of(
+                                        context,
+                                      ).colorScheme.primary,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                              ),
+                            )
+                          else if (suggestedResumeAt != null)
+                            Padding(
+                              padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
+                              child: OutlinedButton(
+                                onPressed: () =>
+                                    _resumeAfterNextOccurrence(schedule),
+                                child: Text(
+                                  '${_formatResumeAt(suggestedResumeAt)}부터 '
+                                  '다시 켜기',
+                                ),
+                              ),
+                            ),
+                        ],
                       ),
                     ),
-                  ),
-                ),
+                  );
+                }),
             ],
           );
         },
       ),
     );
   }
+}
+
+String _formatResumeAt(DateTime dateTime) {
+  final weekday = weekdayLabels[dateTime.weekday];
+  return '${dateTime.month}월 ${dateTime.day}일($weekday) '
+      '${formatDisplayTime(dateTime.hour, dateTime.minute)}';
 }
 
 class _NotificationCard extends StatelessWidget {

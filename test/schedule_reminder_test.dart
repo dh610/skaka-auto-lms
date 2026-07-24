@@ -7,6 +7,8 @@ import 'package:skala_attendance/features/schedule/application/notification_sche
 import 'package:skala_attendance/features/schedule/application/schedule_controller.dart';
 import 'package:skala_attendance/features/schedule/data/schedule_store.dart';
 import 'package:skala_attendance/features/schedule/domain/attendance_schedule.dart';
+import 'package:skala_attendance/features/schedule/domain/alarm_occurrence.dart';
+import 'package:skala_attendance/features/schedule/domain/alarm_settings.dart';
 import 'package:skala_attendance/features/schedule/domain/schedule_reminder.dart';
 
 void main() {
@@ -50,6 +52,72 @@ void main() {
     ], now: DateTime(2026, 7, 16));
 
     expect(reminders.single.dateTime, DateTime(2026, 7, 17, 10));
+  });
+
+  test('planner excludes only the selected occurrence', () {
+    final schedule = AttendanceSchedule(
+      id: 'skip-once',
+      action: AttendanceAction.checkIn,
+      hour: 9,
+      minute: 0,
+      weekdays: const {1, 2, 3, 4, 5},
+      enabled: true,
+      skippedOccurrenceAt: DateTime(2026, 7, 21, 9),
+    );
+
+    final reminders = ScheduleReminderPlanner.plan([
+      schedule,
+    ], now: DateTime(2026, 7, 21, 8));
+
+    expect(reminders.take(2).map((item) => item.dateTime), [
+      DateTime(2026, 7, 22, 9),
+      DateTime(2026, 7, 23, 9),
+    ]);
+  });
+
+  test('next occurrences ignore enabled state and skip public holidays', () {
+    const schedule = AttendanceSchedule(
+      id: 'disabled-weekday',
+      action: AttendanceAction.checkIn,
+      hour: 9,
+      minute: 0,
+      weekdays: {1, 2, 3, 4, 5},
+      enabled: false,
+    );
+
+    final occurrences = ScheduleReminderPlanner.nextOccurrenceTimes(
+      schedule,
+      now: DateTime(2026, 7, 16, 8),
+      limit: 2,
+    );
+
+    expect(occurrences, [DateTime(2026, 7, 16, 9), DateTime(2026, 7, 20, 9)]);
+  });
+
+  test('alarm occurrence carries settings and attendance payload', () {
+    const schedule = AttendanceSchedule(
+      id: 'native-alarm',
+      action: AttendanceAction.leave,
+      hour: 12,
+      minute: 30,
+      weekdays: {DateTime.friday},
+      enabled: true,
+      alarmSettings: AlarmSettings(
+        volumePercent: 55,
+        vibrationEnabled: false,
+        snoozeMinutes: 3,
+        maximumSnoozeCount: 1,
+      ),
+    );
+    final occurrence = AlarmOccurrence(
+      schedule: schedule,
+      scheduledAt: DateTime(2026, 7, 24, 12, 30),
+    );
+
+    expect(occurrence.occurrenceKey, 'native-alarm@2026-07-24T12:30:00.000');
+    expect(occurrence.toPlatformMap()['volumePercent'], 55);
+    expect(occurrence.toPlatformMap()['maximumSnoozeCount'], 1);
+    expect(occurrence.attendancePayload, contains('"action":"leave"'));
   });
 
   test('controller requests permission and resyncs after save', () async {

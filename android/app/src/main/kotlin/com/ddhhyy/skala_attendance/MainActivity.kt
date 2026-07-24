@@ -2,18 +2,27 @@ package com.ddhhyy.skala_attendance
 
 import android.content.ActivityNotFoundException
 import android.content.Intent
+import android.app.NotificationManager
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
+import android.media.RingtoneManager
 import android.content.pm.verify.domain.DomainVerificationManager
 import android.content.pm.verify.domain.DomainVerificationUserState
 import androidx.browser.customtabs.CustomTabsIntent
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.plugin.common.MethodChannel
+import com.ddhhyy.skala_attendance.alarm.AlarmBridge
+import com.ddhhyy.skala_attendance.alarm.AlarmContract
+import com.ddhhyy.skala_attendance.alarm.AlarmData
+import com.ddhhyy.skala_attendance.alarm.AlarmScheduler
 
 class MainActivity : FlutterActivity() {
     private val callbackHost = "att.skala-ai.com"
+    private val alarmSoundRequestCode = 7101
+    private var pendingAlarmSoundResult: MethodChannel.Result? = null
+    private var alarmChannel: MethodChannel? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -34,6 +43,111 @@ class MainActivity : FlutterActivity() {
                     else -> result.notImplemented()
                 }
             }
+        alarmChannel =
+            MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "skala_attendance/alarm")
+        alarmChannel?.setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "pickAlarmSound" -> pickAlarmSound(call.argument("uri"), result)
+                    "syncAlarms" -> syncAlarms(call.arguments, result)
+                    "takeLaunchPayload" -> result.success(AlarmBridge.takePayload())
+                    "canUseFullScreenIntent" -> result.success(canUseFullScreenIntent())
+                    "openFullScreenIntentSettings" ->
+                        openFullScreenIntentSettings(result)
+                    else -> result.notImplemented()
+                }
+            }
+        handleAlarmIntent(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleAlarmIntent(intent)
+    }
+
+    private fun syncAlarms(arguments: Any?, result: MethodChannel.Result) {
+        val alarms = (arguments as? List<*>)
+            ?.mapNotNull { AlarmData.fromMap(it as? Map<*, *> ?: return@mapNotNull null) }
+            ?: emptyList()
+        runCatching { AlarmScheduler.sync(this, alarms) }
+            .onSuccess { result.success(null) }
+            .onFailure {
+                result.error("ALARM_SYNC_FAILED", it.message, null)
+            }
+    }
+
+    private fun handleAlarmIntent(intent: Intent?) {
+        val payload = intent?.getStringExtra(AlarmContract.extraAttendancePayload) ?: return
+        AlarmBridge.pendingAttendancePayload = payload
+        alarmChannel?.invokeMethod("alarmAction", payload)
+        intent.removeExtra(AlarmContract.extraAttendancePayload)
+    }
+
+    private fun canUseFullScreenIntent(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) return true
+        return getSystemService(NotificationManager::class.java).canUseFullScreenIntent()
+    }
+
+    private fun openFullScreenIntentSettings(result: MethodChannel.Result) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            result.success(null)
+            return
+        }
+        val intent = Intent(
+            Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT,
+            Uri.parse("package:$packageName"),
+        )
+        openSettingsWithAppDetailsFallback(intent, result)
+    }
+
+    @Suppress("DEPRECATION")
+    private fun pickAlarmSound(currentUri: String?, result: MethodChannel.Result) {
+        if (pendingAlarmSoundResult != null) {
+            result.error("ALREADY_PICKING", "Alarm sound picker is already open", null)
+            return
+        }
+        pendingAlarmSoundResult = result
+        val selected = currentUri?.let(Uri::parse)
+            ?: Settings.System.DEFAULT_ALARM_ALERT_URI
+        val intent = Intent(RingtoneManager.ACTION_RINGTONE_PICKER)
+            .putExtra(RingtoneManager.EXTRA_RINGTONE_TYPE, RingtoneManager.TYPE_ALARM)
+            .putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_DEFAULT, true)
+            .putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_SILENT, false)
+            .putExtra(RingtoneManager.EXTRA_RINGTONE_EXISTING_URI, selected)
+        try {
+            startActivityForResult(intent, alarmSoundRequestCode)
+        } catch (error: ActivityNotFoundException) {
+            pendingAlarmSoundResult = null
+            result.error("PICKER_UNAVAILABLE", error.message, null)
+        }
+    }
+
+    @Deprecated("Deprecated in Android")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        if (requestCode != alarmSoundRequestCode) {
+            super.onActivityResult(requestCode, resultCode, data)
+            return
+        }
+        val result = pendingAlarmSoundResult ?: return
+        pendingAlarmSoundResult = null
+        if (resultCode != RESULT_OK) {
+            result.success(null)
+            return
+        }
+        val uri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            data?.getParcelableExtra(
+                RingtoneManager.EXTRA_RINGTONE_PICKED_URI,
+                Uri::class.java,
+            )
+        } else {
+            @Suppress("DEPRECATION")
+            data?.getParcelableExtra(RingtoneManager.EXTRA_RINGTONE_PICKED_URI)
+        }
+        val normalized = uri ?: Settings.System.DEFAULT_ALARM_ALERT_URI
+        val label = runCatching {
+            RingtoneManager.getRingtone(this, normalized)?.getTitle(this)
+        }.getOrNull().orEmpty().ifBlank { "시스템 기본 알람음" }
+        result.success(mapOf("uri" to normalized.toString(), "label" to label))
     }
 
     private fun openCustomTab(rawUrl: String?, result: MethodChannel.Result) {

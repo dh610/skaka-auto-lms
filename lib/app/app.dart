@@ -15,6 +15,7 @@ import '../features/schedule/application/schedule_controller.dart';
 import '../features/schedule/application/notification_scheduler.dart';
 import '../features/schedule/data/schedule_store.dart';
 import '../features/schedule/data/local_notification_scheduler.dart';
+import '../features/schedule/data/platform_alarm_sound_picker.dart';
 import '../features/settings/data/package_info_app_version_provider.dart';
 import '../features/settings/domain/app_version.dart';
 import '../features/settings/presentation/settings_screen.dart';
@@ -59,6 +60,7 @@ class _SkalaAttendanceAppState extends State<SkalaAttendanceApp>
   late final InitialSetupStore _initialSetupStore;
   late final NotificationScheduler _notificationScheduler;
   late final NotificationPermissionSettings _notificationPermissionSettings;
+  FullScreenAlarmPermissionSettings? _fullScreenAlarmPermissionSettings;
   late final CallbackLinkSettings _callbackLinkSettings;
   late final AppVersionProvider _appVersionProvider;
   late final ScheduleController _scheduleController;
@@ -84,6 +86,10 @@ class _SkalaAttendanceAppState extends State<SkalaAttendanceApp>
             isAndroid: widget.isAndroid,
           ),
         };
+    _fullScreenAlarmPermissionSettings = switch (_notificationScheduler) {
+      final FullScreenAlarmPermissionSettings settings => settings,
+      _ => null,
+    };
     _callbackLinkSettings =
         widget.callbackLinkSettings ?? PlatformCallbackLinkSettings();
     _appVersionProvider =
@@ -93,6 +99,7 @@ class _SkalaAttendanceAppState extends State<SkalaAttendanceApp>
     _scheduleController = ScheduleController(
       ScheduleStore(),
       _notificationScheduler,
+      const PlatformAlarmSoundPicker(),
     );
     _scheduleInitialization = _scheduleController.load();
     _loadProfile();
@@ -215,6 +222,7 @@ class _SkalaAttendanceAppState extends State<SkalaAttendanceApp>
           themeMode: _themeMode,
           isAndroid: widget.isAndroid,
           notificationSettings: _notificationPermissionSettings,
+          fullScreenAlarmSettings: _fullScreenAlarmPermissionSettings,
           callbackLinkSettings: _callbackLinkSettings,
           appVersionProvider: _appVersionProvider,
           onEditProfile: _editProfile,

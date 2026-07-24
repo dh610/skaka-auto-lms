@@ -19,7 +19,6 @@ import '../data/skala_attendance_api.dart';
 import '../domain/action_confirmation_policy.dart';
 import '../domain/attendance_snapshot.dart';
 import '../domain/daily_attendance_status.dart';
-import '../domain/today_schedule_status.dart';
 import 'attendance_display_formatter.dart';
 
 class AttendanceScreen extends StatefulWidget {
@@ -568,10 +567,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                 onAction: _beginAction,
               ),
               const SizedBox(height: 10),
-              _TodaySchedulesCard(
-                controller: widget.scheduleController,
-                attendanceController: _controller,
-              ),
+              _TodaySchedulesCard(controller: widget.scheduleController),
               const SizedBox(height: 24),
               Text(
                 'Google 인증은 브라우저에서 직접 진행하며 인증 정보는 기기에 저장하지 않습니다.',
@@ -697,43 +693,18 @@ class _EarlyCheckOutConfirmationDialogState
   }
 }
 
-class _TodaySchedulesCard extends StatefulWidget {
-  const _TodaySchedulesCard({
-    required this.controller,
-    required this.attendanceController,
-  });
+class _TodaySchedulesCard extends StatelessWidget {
+  const _TodaySchedulesCard({required this.controller});
 
   final ScheduleController controller;
-  final AttendanceController attendanceController;
-
-  @override
-  State<_TodaySchedulesCard> createState() => _TodaySchedulesCardState();
-}
-
-class _TodaySchedulesCardState extends State<_TodaySchedulesCard> {
-  Timer? _timer;
-
-  @override
-  void initState() {
-    super.initState();
-    _timer = Timer.periodic(const Duration(minutes: 1), (_) {
-      if (mounted) setState(() {});
-    });
-  }
-
-  @override
-  void dispose() {
-    _timer?.cancel();
-    super.dispose();
-  }
 
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
-      listenable: widget.controller,
+      listenable: controller,
       builder: (context, _) {
         final today = DateTime.now();
-        final schedules = widget.controller.schedulesFor(today);
+        final schedules = controller.schedulesFor(today);
         final holidayName = TrainingCalendar.holidayName(today);
         return Card(
           child: Padding(
@@ -750,19 +721,18 @@ class _TodaySchedulesCardState extends State<_TodaySchedulesCard> {
                     const SizedBox(width: 10),
                     Expanded(
                       child: Text(
-                        '오늘 예정된 동작',
+                        '오늘의 알람',
                         style: Theme.of(context).textTheme.titleMedium,
                       ),
                     ),
                     TextButton(
                       onPressed: () async {
-                        await widget.controller.refreshNotificationStatus();
+                        await controller.refreshNotificationStatus();
                         if (!context.mounted) return;
                         await Navigator.of(context).push<void>(
                           MaterialPageRoute(
-                            builder: (_) => ScheduleListScreen(
-                              controller: widget.controller,
-                            ),
+                            builder: (_) =>
+                                ScheduleListScreen(controller: controller),
                           ),
                         );
                       },
@@ -770,7 +740,7 @@ class _TodaySchedulesCardState extends State<_TodaySchedulesCard> {
                     ),
                   ],
                 ),
-                if (widget.controller.loading)
+                if (controller.loading)
                   const LinearProgressIndicator()
                 else if (holidayName != null && schedules.isEmpty)
                   Padding(
@@ -780,68 +750,15 @@ class _TodaySchedulesCardState extends State<_TodaySchedulesCard> {
                 else if (schedules.isEmpty)
                   const Padding(
                     padding: EdgeInsets.only(top: 8),
-                    child: Text('오늘 실행할 일정이 없습니다.'),
+                    child: Text('오늘 울릴 알람이 없습니다.'),
                   )
                 else
-                  ...schedules.map((schedule) {
-                    final status = statusForTodaySchedule(
-                      schedule,
-                      now: today,
-                      persistedCompleted: widget.attendanceController
-                          .wasScheduleCompleted(schedule, today),
-                      persistedSkipped: widget.attendanceController
-                          .wasScheduleSkipped(schedule, today),
-                    );
-                    return _ScheduleRow(
-                      schedule,
-                      status: status,
-                      onStatusTap:
-                          status == TodayScheduleStatus.overdue ||
-                              status == TodayScheduleStatus.skipped
-                          ? () => _changeSkippedStatus(schedule, status, today)
-                          : null,
-                    );
-                  }),
+                  ...schedules.map(_ScheduleRow.new),
               ],
             ),
           ),
         );
       },
-    );
-  }
-
-  Future<void> _changeSkippedStatus(
-    AttendanceSchedule schedule,
-    TodayScheduleStatus status,
-    DateTime date,
-  ) async {
-    final markingSkipped = status == TodayScheduleStatus.overdue;
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(markingSkipped ? '이 동작을 건너뛸까요?' : '건너뜀을 취소할까요?'),
-        content: Text(
-          markingSkipped
-              ? '수행할 필요가 없었던 일정이라면 건너뜀으로 표시할 수 있습니다. 실제 출결 완료로 기록되지는 않습니다.'
-              : '이 일정을 다시 시간 지남 상태로 되돌립니다.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('취소'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: Text(markingSkipped ? '건너뜀으로 표시' : '되돌리기'),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true) return;
-    await widget.attendanceController.setScheduleSkipped(
-      schedule,
-      date,
-      skipped: markingSkipped,
     );
   }
 }
@@ -853,65 +770,26 @@ typedef _ScheduledOccurrence = ({
 });
 
 class _ScheduleRow extends StatelessWidget {
-  const _ScheduleRow(this.schedule, {required this.status, this.onStatusTap});
+  const _ScheduleRow(this.schedule);
 
   final AttendanceSchedule schedule;
-  final TodayScheduleStatus status;
-  final VoidCallback? onStatusTap;
 
   @override
   Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    final completedColor = Theme.of(context).brightness == Brightness.dark
-        ? const Color(0xFF81C784)
-        : const Color(0xFF2E7D32);
-    final (icon, label, color) = switch (status) {
-      TodayScheduleStatus.upcoming => (
-        Icons.schedule_outlined,
-        '예정',
-        colors.primary,
-      ),
-      TodayScheduleStatus.completed => (
-        Icons.check_circle_outline_rounded,
-        '완료',
-        completedColor,
-      ),
-      TodayScheduleStatus.skipped => (
-        Icons.do_not_disturb_on_outlined,
-        '건너뜀',
-        colors.outline,
-      ),
-      TodayScheduleStatus.overdue => (
-        Icons.history_toggle_off_rounded,
-        '시간 지남',
-        colors.error,
-      ),
-    };
     return Padding(
       padding: const EdgeInsets.only(top: 10),
       child: Row(
         children: [
-          Icon(icon, size: 20, color: color),
+          Icon(
+            Icons.alarm_outlined,
+            size: 20,
+            color: Theme.of(context).colorScheme.primary,
+          ),
           const SizedBox(width: 10),
-          Text(schedule.displayTime),
-          const SizedBox(width: 12),
-          Expanded(child: Text(schedule.action.label)),
-          InkWell(
-            onTap: onStatusTap,
-            borderRadius: BorderRadius.circular(999),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
-              decoration: BoxDecoration(
-                color: color.withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(999),
-              ),
-              child: Text(
-                label,
-                style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                  color: color,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
+          Expanded(
+            child: Text(
+              '${schedule.displayTime} · ${schedule.action.label}',
+              style: const TextStyle(fontWeight: FontWeight.w600),
             ),
           ),
         ],

@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:skala_attendance/features/schedule/application/schedule_controller.dart';
 import 'package:skala_attendance/features/schedule/data/schedule_store.dart';
+import 'package:skala_attendance/features/schedule/domain/alarm_settings.dart';
 import 'package:skala_attendance/features/schedule/domain/attendance_schedule.dart';
 import 'package:skala_attendance/features/schedule/domain/training_calendar.dart';
 
@@ -87,6 +88,130 @@ void main() {
     expect(schedule.recurrence, ScheduleRecurrence.weekly);
     expect(schedule.excludePublicHolidays, isTrue);
     expect(schedule.date, isNull);
+    expect(schedule.alarmSettings, const AlarmSettings());
+  });
+
+  test('schedule JSON round trip preserves alarm settings', () {
+    const settings = AlarmSettings(
+      sound: AlarmSound(uri: 'content://alarm/custom', label: 'Morning'),
+      volumePercent: 65,
+      vibrationEnabled: false,
+      gradualVolumeEnabled: true,
+      snoozeMinutes: 10,
+      maximumSnoozeCount: null,
+    );
+    const schedule = AttendanceSchedule(
+      id: 'alarm-settings',
+      action: AttendanceAction.checkIn,
+      hour: 8,
+      minute: 50,
+      weekdays: {1, 2, 3, 4, 5},
+      enabled: true,
+      alarmSettings: settings,
+    );
+
+    final restored = AttendanceSchedule.fromJson(schedule.toJson());
+
+    expect(restored.alarmSettings, settings);
+  });
+
+  test('schedule JSON round trip preserves one skipped occurrence', () {
+    final schedule = AttendanceSchedule(
+      id: 'skip-one',
+      action: AttendanceAction.checkOut,
+      hour: 17,
+      minute: 50,
+      weekdays: const {1, 2, 3, 4, 5},
+      enabled: true,
+      skippedOccurrenceAt: DateTime(2026, 7, 21, 17, 50),
+    );
+
+    final restored = AttendanceSchedule.fromJson(schedule.toJson());
+
+    expect(restored.skippedOccurrenceAt, schedule.skippedOccurrenceAt);
+  });
+
+  test(
+    'controller can skip the next occurrence and keep later alarms',
+    () async {
+      final controller = ScheduleController(ScheduleStore());
+      await controller.load();
+      const schedule = AttendanceSchedule(
+        id: 'weekday-auto-resume',
+        action: AttendanceAction.checkIn,
+        hour: 9,
+        minute: 0,
+        weekdays: {1, 2, 3, 4, 5},
+        enabled: false,
+      );
+      await controller.saveSchedule(schedule);
+
+      final resumeAt = await controller.resumeAfterNextOccurrence(
+        schedule,
+        now: DateTime(2026, 7, 21, 8),
+      );
+
+      expect(resumeAt, DateTime(2026, 7, 22, 9));
+      final updated = controller.schedules.single;
+      expect(updated.enabled, isTrue);
+      expect(updated.skippedOccurrenceAt, DateTime(2026, 7, 21, 9));
+      expect(controller.schedulesFor(DateTime(2026, 7, 21)), isEmpty);
+      expect(
+        controller.schedulesFor(DateTime(2026, 7, 22)).single.id,
+        schedule.id,
+      );
+      expect(
+        controller.isDisplayedEnabled(updated, DateTime(2026, 7, 21, 8, 30)),
+        isFalse,
+      );
+      expect(
+        controller.isDisplayedEnabled(updated, DateTime(2026, 7, 21, 9, 1)),
+        isTrue,
+      );
+      controller.dispose();
+    },
+  );
+
+  test('malformed alarm settings fall back without losing the schedule', () {
+    final schedule = AttendanceSchedule.fromJson({
+      'id': 'malformed-alarm',
+      'action': 'checkIn',
+      'hour': 9,
+      'minute': 0,
+      'weekdays': [1],
+      'enabled': true,
+      'alarmSettings': {'sound': 'not-a-map', 'maximumSnoozeCount': 'invalid'},
+    });
+
+    expect(schedule.alarmSettings, const AlarmSettings());
+  });
+
+  test('new schedules reuse the last saved alarm settings', () async {
+    final controller = ScheduleController(ScheduleStore());
+    await controller.load();
+    const settings = AlarmSettings(
+      volumePercent: 40,
+      vibrationEnabled: false,
+      snoozeMinutes: 3,
+      maximumSnoozeCount: 1,
+    );
+    const schedule = AttendanceSchedule(
+      id: 'remember-alarm',
+      action: AttendanceAction.checkOut,
+      hour: 18,
+      minute: 0,
+      weekdays: {1, 2, 3, 4, 5},
+      enabled: true,
+      alarmSettings: settings,
+    );
+
+    await controller.saveSchedule(schedule);
+    final restored = ScheduleController(ScheduleStore());
+    await restored.load();
+
+    expect(restored.defaultAlarmSettings, settings);
+    controller.dispose();
+    restored.dispose();
   });
 
   test('weekly schedules skip holidays but date schedules remain', () async {

@@ -15,6 +15,7 @@ class SettingsScreen extends StatefulWidget {
     required this.themeMode,
     required this.isAndroid,
     required this.notificationSettings,
+    this.fullScreenAlarmSettings,
     required this.callbackLinkSettings,
     required this.appVersionProvider,
     required this.onEditProfile,
@@ -26,6 +27,7 @@ class SettingsScreen extends StatefulWidget {
   final ThemeMode themeMode;
   final bool isAndroid;
   final NotificationPermissionSettings notificationSettings;
+  final FullScreenAlarmPermissionSettings? fullScreenAlarmSettings;
   final CallbackLinkSettings callbackLinkSettings;
   final AppVersionProvider appVersionProvider;
   final Future<UserProfile?> Function() onEditProfile;
@@ -48,6 +50,7 @@ class _SettingsScreenState extends State<SettingsScreen>
       initialThemeMode: widget.themeMode,
       isAndroid: widget.isAndroid,
       notificationSettings: widget.notificationSettings,
+      fullScreenAlarmSettings: widget.fullScreenAlarmSettings,
       callbackLinkSettings: widget.callbackLinkSettings,
       appVersionProvider: widget.appVersionProvider,
       editProfile: widget.onEditProfile,
@@ -156,6 +159,13 @@ class _SettingsScreenState extends State<SettingsScreen>
                 label: '정확한 알람 권한',
                 status: _controller.exactAlarmStatus,
                 onTap: () => _runOperation(_controller.openExactAlarmSettings),
+              ),
+            if (widget.isAndroid && widget.fullScreenAlarmSettings != null)
+              _PermissionListTile(
+                label: '전체 화면 알람 권한',
+                status: _controller.fullScreenAlarmStatus,
+                onTap: () =>
+                    _runOperation(_controller.openFullScreenAlarmSettings),
               ),
             if (widget.isAndroid)
               _PermissionListTile(

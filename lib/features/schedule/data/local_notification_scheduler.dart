@@ -10,20 +10,37 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../application/notification_scheduler.dart';
 import '../domain/attendance_schedule.dart';
+import '../domain/alarm_occurrence.dart';
 import '../domain/schedule_reminder.dart';
+import 'android_alarm_platform.dart';
 
 class LocalNotificationScheduler
-    implements NotificationScheduler, NotificationPermissionSettings {
+    implements
+        NotificationScheduler,
+        NotificationPermissionSettings,
+        FullScreenAlarmPermissionSettings {
   LocalNotificationScheduler({
     FlutterLocalNotificationsPlugin? plugin,
     NotificationPermissionPlatform? permissionPlatform,
-  }) : this._(plugin ?? FlutterLocalNotificationsPlugin(), permissionPlatform);
+    AndroidAlarmPlatform? alarmPlatform,
+    bool? isAndroid,
+  }) : this._(
+         plugin ?? FlutterLocalNotificationsPlugin(),
+         permissionPlatform,
+         alarmPlatform,
+         isAndroid ?? Platform.isAndroid,
+       );
 
   LocalNotificationScheduler._(
     this._plugin,
     NotificationPermissionPlatform? permissionPlatform,
+    AndroidAlarmPlatform? alarmPlatform,
+    this._isAndroid,
   ) : _permissionPlatform =
-          permissionPlatform ?? FlutterNotificationPermissionPlatform(_plugin);
+          permissionPlatform ?? FlutterNotificationPermissionPlatform(_plugin),
+      _alarmPlatform =
+          alarmPlatform ??
+          (_isAndroid ? MethodChannelAndroidAlarmPlatform() : null);
 
   static const _channelId = 'attendance_schedule_reminders';
   static const _channelName = '출결 일정 알림';
@@ -31,6 +48,8 @@ class LocalNotificationScheduler
 
   final FlutterLocalNotificationsPlugin _plugin;
   final NotificationPermissionPlatform _permissionPlatform;
+  final AndroidAlarmPlatform? _alarmPlatform;
+  final bool _isAndroid;
   final ValueNotifier<String?> _tapPayload = ValueNotifier(null);
   bool _initialized = false;
 
@@ -69,12 +88,26 @@ class LocalNotificationScheduler
         launchPayload.isNotEmpty) {
       _tapPayload.value = launchPayload;
     }
+    if (_isAndroid) {
+      await _alarmPlatform?.initialize((payload) {
+        _tapPayload.value = payload;
+      });
+      final alarmPayload = await _alarmPlatform?.takeLaunchPayload();
+      if (alarmPayload != null && alarmPayload.isNotEmpty) {
+        _tapPayload.value = alarmPayload;
+      }
+    }
     _initialized = true;
   }
 
   @override
   Future<bool> arePermissionsGranted() async {
-    return (await getPermissionStatus()).arePermissionsGranted;
+    final notificationPermissions =
+        (await getPermissionStatus()).arePermissionsGranted;
+    if (!notificationPermissions || !_isAndroid) {
+      return notificationPermissions;
+    }
+    return await canUseFullScreenIntent() == true;
   }
 
   @override
@@ -85,7 +118,14 @@ class LocalNotificationScheduler
   @override
   Future<bool> requestPermissions() async {
     await initialize();
-    return _permissionPlatform.requestPermissions();
+    final notificationPermissions = await _permissionPlatform
+        .requestPermissions();
+    if (!notificationPermissions || !_isAndroid) {
+      return notificationPermissions;
+    }
+    if (await canUseFullScreenIntent() == true) return true;
+    await openFullScreenIntentSettings();
+    return false;
   }
 
   @override
@@ -102,6 +142,22 @@ class LocalNotificationScheduler
       _permissionPlatform.openExactAlarmSettings();
 
   @override
+  Future<bool?> canUseFullScreenIntent() async {
+    if (!_isAndroid) return true;
+    try {
+      return await _alarmPlatform?.canUseFullScreenIntent();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  @override
+  Future<void> openFullScreenIntentSettings() async {
+    if (!_isAndroid) return;
+    await _alarmPlatform?.openFullScreenIntentSettings();
+  }
+
+  @override
   Future<int> sync(List<AttendanceSchedule> schedules, {DateTime? now}) async {
     await initialize();
     await _plugin.cancelAllPendingNotifications();
@@ -109,17 +165,20 @@ class LocalNotificationScheduler
       schedules,
       now: now ?? DateTime.now(),
     );
-    var mode = AndroidScheduleMode.exactAllowWhileIdle;
-    if (Platform.isAndroid) {
-      final canScheduleExact = await _plugin
-          .resolvePlatformSpecificImplementation<
-            AndroidFlutterLocalNotificationsPlugin
-          >()
-          ?.canScheduleExactNotifications();
-      if (canScheduleExact == false) {
-        mode = AndroidScheduleMode.inexactAllowWhileIdle;
-      }
+    if (_isAndroid) {
+      await _alarmPlatform?.sync(
+        reminders
+            .map(
+              (reminder) => AlarmOccurrence(
+                schedule: reminder.schedule,
+                scheduledAt: reminder.dateTime,
+              ),
+            )
+            .toList(),
+      );
+      return reminders.length;
     }
+    var mode = AndroidScheduleMode.exactAllowWhileIdle;
     for (var index = 0; index < reminders.length; index++) {
       final reminder = reminders[index];
       await _plugin.zonedSchedule(

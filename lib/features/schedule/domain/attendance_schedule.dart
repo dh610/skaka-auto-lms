@@ -1,3 +1,5 @@
+import 'alarm_settings.dart';
+
 enum AttendanceAction {
   checkIn('입실', 'CHECK_IN'),
   checkOut('퇴실', 'CHECK_OUT'),
@@ -30,6 +32,8 @@ class AttendanceSchedule {
     this.recurrence = ScheduleRecurrence.weekly,
     this.date,
     this.excludePublicHolidays = true,
+    this.alarmSettings = const AlarmSettings(),
+    this.skippedOccurrenceAt,
   }) : assert(recurrence == ScheduleRecurrence.weekly || date != null);
 
   factory AttendanceSchedule.fromJson(Map<String, dynamic> json) {
@@ -49,6 +53,14 @@ class AttendanceSchedule {
           : ScheduleRecurrence.values.byName(recurrenceName),
       date: dateValue == null ? null : DateTime.parse(dateValue),
       excludePublicHolidays: json['excludePublicHolidays'] as bool? ?? true,
+      alarmSettings: AlarmSettings.fromJson(switch (json['alarmSettings']) {
+        final Map<String, dynamic> value => value,
+        _ => null,
+      }),
+      skippedOccurrenceAt: switch (json['skippedOccurrenceAt']) {
+        final String value => DateTime.tryParse(value),
+        _ => null,
+      },
     );
   }
 
@@ -61,6 +73,8 @@ class AttendanceSchedule {
   final ScheduleRecurrence recurrence;
   final DateTime? date;
   final bool excludePublicHolidays;
+  final AlarmSettings alarmSettings;
+  final DateTime? skippedOccurrenceAt;
 
   int get minutesSinceMidnight => hour * 60 + minute;
 
@@ -79,10 +93,18 @@ class AttendanceSchedule {
 
   bool matches(DateTime target) {
     if (!enabled) return false;
-    if (recurrence == ScheduleRecurrence.weekly) {
-      return weekdays.contains(target.weekday);
-    }
-    return isSameDate(date!, target);
+    final matchesRecurrence = recurrence == ScheduleRecurrence.weekly
+        ? weekdays.contains(target.weekday)
+        : isSameDate(date!, target);
+    if (!matchesRecurrence) return false;
+    final occurrence = DateTime(
+      target.year,
+      target.month,
+      target.day,
+      hour,
+      minute,
+    );
+    return occurrence != skippedOccurrenceAt;
   }
 
   AttendanceSchedule copyWith({
@@ -94,6 +116,9 @@ class AttendanceSchedule {
     ScheduleRecurrence? recurrence,
     DateTime? date,
     bool? excludePublicHolidays,
+    AlarmSettings? alarmSettings,
+    DateTime? skippedOccurrenceAt,
+    bool clearSkippedOccurrence = false,
   }) {
     return AttendanceSchedule(
       id: id,
@@ -106,6 +131,10 @@ class AttendanceSchedule {
       date: date ?? this.date,
       excludePublicHolidays:
           excludePublicHolidays ?? this.excludePublicHolidays,
+      alarmSettings: alarmSettings ?? this.alarmSettings,
+      skippedOccurrenceAt: clearSkippedOccurrence
+          ? null
+          : skippedOccurrenceAt ?? this.skippedOccurrenceAt,
     );
   }
 
@@ -119,6 +148,8 @@ class AttendanceSchedule {
     'recurrence': recurrence.name,
     'date': date == null ? null : formatIsoDate(date!),
     'excludePublicHolidays': excludePublicHolidays,
+    'alarmSettings': alarmSettings.toJson(),
+    'skippedOccurrenceAt': skippedOccurrenceAt?.toIso8601String(),
   };
 }
 

@@ -40,6 +40,12 @@ abstract interface class NotificationPermissionSettings {
   Future<void> openExactAlarmSettings();
 }
 
+abstract interface class FullScreenAlarmPermissionSettings {
+  Future<bool?> canUseFullScreenIntent();
+
+  Future<void> openFullScreenIntentSettings();
+}
+
 abstract interface class NotificationScheduler {
   ValueListenable<String?> get tapPayload;
 

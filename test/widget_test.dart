@@ -191,8 +191,8 @@ void main() {
     await tester.pump();
     await tester.pump();
 
-    await tester.scrollUntilVisible(find.text('오늘 실행할 일정이 없습니다.'), 200);
-    expect(find.text('오늘 실행할 일정이 없습니다.'), findsOneWidget);
+    await tester.scrollUntilVisible(find.text('오늘 울릴 알람이 없습니다.'), 200);
+    expect(find.text('오늘 울릴 알람이 없습니다.'), findsOneWidget);
     expect(notifications.initializationStarted, isFalse);
   });
 
@@ -272,10 +272,10 @@ void main() {
     expect(find.text('출결 정보 확인하기'), findsNothing);
     expect(find.text('Google 인증 시작'), findsNothing);
     expect(find.text('Google 인증 필요'), findsNothing);
-    await tester.scrollUntilVisible(find.text('오늘 예정된 동작'), 200);
+    await tester.scrollUntilVisible(find.text('오늘의 알람'), 200);
     expect(
       tester.getTopLeft(find.text('오늘 출결 · 7월 24일(금)')).dy,
-      lessThan(tester.getTopLeft(find.text('오늘 예정된 동작')).dy),
+      lessThan(tester.getTopLeft(find.text('오늘의 알람')).dy),
     );
     schedules.dispose();
   });
@@ -335,10 +335,10 @@ void main() {
     expect(find.textContaining('2026-07-24T'), findsNothing);
     expect(gateway.recordedAction, isNull);
     expect(find.textContaining('오늘 출결 ·'), findsOneWidget);
-    await tester.scrollUntilVisible(find.text('오늘 예정된 동작'), 200);
+    await tester.scrollUntilVisible(find.text('오늘의 알람'), 200);
     expect(
       tester.getTopLeft(find.text('오늘 출결 · 7월 24일(금)')).dy,
-      lessThan(tester.getTopLeft(find.text('오늘 예정된 동작')).dy),
+      lessThan(tester.getTopLeft(find.text('오늘의 알람')).dy),
     );
     final checkIn = tester.getTopLeft(
       find.byKey(const ValueKey('attendance-status-checkIn')),
@@ -1375,8 +1375,8 @@ void main() {
     for (var index = 1; index < positions.length; index++) {
       expect(positions[index - 1].dy, lessThan(positions[index].dy));
     }
-    await tester.scrollUntilVisible(find.text('오늘 예정된 동작'), 200);
-    expect(find.text('오늘 예정된 동작'), findsOneWidget);
+    await tester.scrollUntilVisible(find.text('오늘의 알람'), 200);
+    expect(find.text('오늘의 알람'), findsOneWidget);
     expect(tester.takeException(), isNull);
 
     await links.close();
@@ -2855,6 +2855,37 @@ void main() {
     expect(notifications.requestCount, 1);
     expect(finished, isTrue);
   });
+
+  testWidgets(
+    'Android setup rechecks permissions after an external settings return',
+    (tester) async {
+      final notifications = _SetupNotificationScheduler(
+        granted: false,
+        grantOnRequest: false,
+      );
+      var finished = false;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: InitialSetupScreen(
+            notificationScheduler: notifications,
+            callbackLinkSettings: _FakeCallbackLinkSettings(enabled: true),
+            isAndroid: true,
+            onFinished: () async => finished = true,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('일정 알림'));
+      await tester.pumpAndSettle();
+
+      notifications.granted = true;
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pumpAndSettle();
+
+      expect(finished, isTrue);
+    },
+  );
 
   testWidgets(
     'required setup waits for notification resync and retries failure',

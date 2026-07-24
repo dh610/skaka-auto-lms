@@ -2,15 +2,23 @@ import 'package:flutter/foundation.dart';
 
 import '../data/schedule_store.dart';
 import '../domain/attendance_schedule.dart';
+import '../domain/alarm_settings.dart';
 import '../domain/schedule_conflict.dart';
+import '../domain/schedule_reminder.dart';
 import '../domain/training_calendar.dart';
+import 'alarm_sound_picker.dart';
 import 'notification_scheduler.dart';
 
 class ScheduleController extends ChangeNotifier {
-  ScheduleController(this._store, [this._notificationScheduler]);
+  ScheduleController(
+    this._store, [
+    this._notificationScheduler,
+    this._alarmSoundPicker,
+  ]);
 
   final ScheduleStore _store;
   final NotificationScheduler? _notificationScheduler;
+  final AlarmSoundPicker? _alarmSoundPicker;
   List<AttendanceSchedule> _schedules = [];
   bool _loading = true;
   String _notificationMessage = '알림 권한을 설정하면 지정 시각에 안내합니다.';
@@ -18,15 +26,21 @@ class ScheduleController extends ChangeNotifier {
   bool _notificationsConfigured = false;
   Future<bool>? _notificationSyncFuture;
   bool _notificationSyncRequested = false;
+  AlarmSettings _defaultAlarmSettings = const AlarmSettings();
 
   List<AttendanceSchedule> get schedules => List.unmodifiable(_schedules);
   bool get loading => _loading;
   String get notificationMessage => _notificationMessage;
   int get pendingNotificationCount => _pendingNotificationCount;
   bool get notificationsConfigured => _notificationsConfigured;
+  AlarmSettings get defaultAlarmSettings => _defaultAlarmSettings;
+
+  Future<AlarmSound?> pickAlarmSound(AlarmSound current) =>
+      _alarmSoundPicker?.pick(current) ?? Future.value(null);
 
   Future<void> load() async {
     _schedules = await _store.load();
+    _defaultAlarmSettings = await _store.loadLastAlarmSettings();
     _sort();
     _loading = false;
     notifyListeners();
@@ -56,6 +70,8 @@ class ScheduleController extends ChangeNotifier {
     } else {
       _schedules[index] = schedule;
     }
+    _defaultAlarmSettings = schedule.alarmSettings;
+    await _store.saveLastAlarmSettings(schedule.alarmSettings);
     await _persist(requestPermission: true);
     return null;
   }
@@ -63,7 +79,60 @@ class ScheduleController extends ChangeNotifier {
   Future<ScheduleConflict?> setEnabled(
     AttendanceSchedule schedule,
     bool enabled,
-  ) => saveSchedule(schedule.copyWith(enabled: enabled));
+  ) => saveSchedule(
+    schedule.copyWith(enabled: enabled, clearSkippedOccurrence: true),
+  );
+
+  DateTime? suggestedResumeAt(
+    AttendanceSchedule schedule, {
+    required DateTime now,
+  }) {
+    final occurrences = ScheduleReminderPlanner.nextOccurrenceTimes(
+      schedule,
+      now: now,
+      limit: 2,
+    );
+    return occurrences.length < 2 ? null : occurrences[1];
+  }
+
+  DateTime? automaticResumeAt(
+    AttendanceSchedule schedule, {
+    required DateTime now,
+  }) {
+    final skipped = schedule.skippedOccurrenceAt;
+    if (skipped == null || now.isAfter(skipped)) return null;
+    final occurrences = ScheduleReminderPlanner.nextOccurrenceTimes(
+      schedule,
+      now: skipped,
+      limit: 1,
+    );
+    return occurrences.firstOrNull;
+  }
+
+  bool isDisplayedEnabled(AttendanceSchedule schedule, DateTime now) {
+    final skipped = schedule.skippedOccurrenceAt;
+    return schedule.enabled && (skipped == null || now.isAfter(skipped));
+  }
+
+  Future<DateTime?> resumeAfterNextOccurrence(
+    AttendanceSchedule schedule, {
+    required DateTime now,
+  }) async {
+    final occurrences = ScheduleReminderPlanner.nextOccurrenceTimes(
+      schedule,
+      now: now,
+      limit: 2,
+    );
+    if (occurrences.length < 2) return null;
+    final index = _schedules.indexWhere((item) => item.id == schedule.id);
+    if (index == -1) return null;
+    _schedules[index] = schedule.copyWith(
+      enabled: true,
+      skippedOccurrenceAt: occurrences[0],
+    );
+    await _persist();
+    return occurrences[1];
+  }
 
   Future<void> delete(AttendanceSchedule schedule) async {
     _schedules.removeWhere((item) => item.id == schedule.id);

@@ -3,6 +3,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:skala_attendance/features/schedule/application/notification_scheduler.dart';
 import 'package:skala_attendance/features/schedule/data/local_notification_scheduler.dart';
+import 'package:skala_attendance/features/schedule/data/android_alarm_platform.dart';
+import 'package:skala_attendance/features/schedule/domain/alarm_occurrence.dart';
 import 'package:skala_attendance/features/settings/data/package_info_app_version_provider.dart';
 import 'package:skala_attendance/features/settings/domain/app_version.dart';
 
@@ -28,6 +30,21 @@ void main() {
           exactAlarmsAllowed: true,
         ),
       ),
+    );
+
+    expect(await scheduler.arePermissionsGranted(), isFalse);
+  });
+
+  test('Android readiness requires full-screen alarm access', () async {
+    final scheduler = LocalNotificationScheduler(
+      permissionPlatform: _FakeNotificationPermissionPlatform(
+        status: const NotificationPermissionStatus.android(
+          notificationsAllowed: true,
+          exactAlarmsAllowed: true,
+        ),
+      ),
+      alarmPlatform: _FakeAndroidAlarmPlatform(fullScreenAllowed: false),
+      isAndroid: true,
     );
 
     expect(await scheduler.arePermissionsGranted(), isFalse);
@@ -133,4 +150,25 @@ class _FakeNotificationPermissionPlatform
 
   @override
   Future<bool> requestPermissions() async => status.arePermissionsGranted;
+}
+
+class _FakeAndroidAlarmPlatform implements AndroidAlarmPlatform {
+  _FakeAndroidAlarmPlatform({required this.fullScreenAllowed});
+
+  final bool fullScreenAllowed;
+
+  @override
+  Future<bool?> canUseFullScreenIntent() async => fullScreenAllowed;
+
+  @override
+  Future<void> initialize(AlarmActionCallback onAction) async {}
+
+  @override
+  Future<void> openFullScreenIntentSettings() async {}
+
+  @override
+  Future<void> sync(List<AlarmOccurrence> occurrences) async {}
+
+  @override
+  Future<String?> takeLaunchPayload() async => null;
 }
