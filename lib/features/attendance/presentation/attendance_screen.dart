@@ -28,7 +28,8 @@ class AttendanceScreen extends StatefulWidget {
     required this.profile,
     required this.scheduleController,
     required this.notificationScheduler,
-    required this.onEditProfile,
+    this.onEditProfile,
+    this.onOpenSettings,
     this.themeMode = ThemeMode.system,
     this.onThemeModeChanged,
     this.gateway,
@@ -42,7 +43,8 @@ class AttendanceScreen extends StatefulWidget {
   final UserProfile profile;
   final ScheduleController scheduleController;
   final NotificationScheduler notificationScheduler;
-  final Future<void> Function() onEditProfile;
+  final Future<void> Function()? onEditProfile;
+  final VoidCallback? onOpenSettings;
   final ThemeMode themeMode;
   final ValueChanged<ThemeMode>? onThemeModeChanged;
   final AttendanceGateway? gateway;
@@ -322,15 +324,6 @@ class _AttendanceScreenState extends State<AttendanceScreen>
         beforeInvalidation: _invalidateAuthenticationContinuation,
       );
 
-  Future<void> _retry() async {
-    if (_attendanceInteractionLocked) return;
-    if (_controller.retryRequiresAuthentication) {
-      await _requestAuthentication();
-    } else {
-      await _controller.retry();
-    }
-  }
-
   _ScheduledOccurrence? _occurrenceFromPayload(String payload) {
     try {
       final json = jsonDecode(payload) as Map<String, dynamic>;
@@ -536,34 +529,6 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     }
   }
 
-  Future<void> _showThemePicker() async {
-    final selected = await showDialog<ThemeMode>(
-      context: context,
-      builder: (dialogContext) => SimpleDialog(
-        title: const Text('테마 선택'),
-        children: ThemeMode.values.map((mode) {
-          final (icon, label) = switch (mode) {
-            ThemeMode.system => (Icons.settings_suggest_outlined, '시스템 설정'),
-            ThemeMode.light => (Icons.light_mode_outlined, '라이트 모드'),
-            ThemeMode.dark => (Icons.dark_mode_outlined, '다크 모드'),
-          };
-          return SimpleDialogOption(
-            onPressed: () => Navigator.of(dialogContext).pop(mode),
-            child: ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: Icon(icon),
-              title: Text(label),
-              trailing: widget.themeMode == mode
-                  ? const Icon(Icons.check)
-                  : null,
-            ),
-          );
-        }).toList(),
-      ),
-    );
-    if (selected != null) widget.onThemeModeChanged?.call(selected);
-  }
-
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
@@ -578,37 +543,16 @@ class _AttendanceScreenState extends State<AttendanceScreen>
           appBar: AppBar(
             title: const Text('SKALA 출결'),
             actions: [
-              if (widget.onThemeModeChanged != null)
-                IconButton(
-                  tooltip: '테마 설정',
-                  onPressed: _showThemePicker,
-                  icon: const Icon(Icons.brightness_6_outlined),
-                ),
+              IconButton(
+                tooltip: '설정',
+                onPressed: widget.onOpenSettings,
+                icon: const Icon(Icons.settings_outlined),
+              ),
             ],
           ),
           body: ListView(
-            padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 32),
             children: [
-              Text(
-                '${widget.profile.name}님, 안녕하세요',
-                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                '오늘의 출결 일정과 상태를 확인하세요.',
-                style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                ),
-              ),
-              const SizedBox(height: 20),
-              _ProfileCard(
-                profile: widget.profile,
-                busy: attendanceLocked,
-                onEditProfile: widget.onEditProfile,
-              ),
-              const SizedBox(height: 16),
               _StatusCard(
                 status: _controller.dailyStatus,
                 liveSnapshot: _controller.snapshot,
@@ -618,13 +562,10 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                 highlightedAction: _highlightedAction,
                 message: _controller.message,
                 hasError: _controller.hasError,
-                canRetry: _controller.canRetry,
-                retryLabel: _controller.retryLabel,
                 onRefresh: _refreshStatus,
                 onAction: _beginAction,
-                onRetry: _retry,
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 10),
               _TodaySchedulesCard(
                 controller: widget.scheduleController,
                 attendanceController: _controller,
@@ -977,49 +918,6 @@ class _ScheduleRow extends StatelessWidget {
   }
 }
 
-class _ProfileCard extends StatelessWidget {
-  const _ProfileCard({
-    required this.profile,
-    required this.busy,
-    required this.onEditProfile,
-  });
-
-  final UserProfile profile;
-  final bool busy;
-  final Future<void> Function() onEditProfile;
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(18),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    '${profile.region.label} · ${profile.classLabel}',
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            TextButton(
-              onPressed: busy ? null : onEditProfile,
-              child: const Text('사용자 정보 변경'),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
 class _StatusCard extends StatelessWidget {
   const _StatusCard({
     required this.status,
@@ -1030,11 +928,8 @@ class _StatusCard extends StatelessWidget {
     required this.highlightedAction,
     required this.message,
     required this.hasError,
-    required this.canRetry,
-    required this.retryLabel,
     required this.onRefresh,
     required this.onAction,
-    required this.onRetry,
   });
 
   final DailyAttendanceStatus status;
@@ -1045,11 +940,8 @@ class _StatusCard extends StatelessWidget {
   final AttendanceAction? highlightedAction;
   final String message;
   final bool hasError;
-  final bool canRetry;
-  final String retryLabel;
   final Future<void> Function() onRefresh;
   final Future<void> Function(AttendanceAction action) onAction;
-  final Future<void> Function() onRetry;
 
   @override
   Widget build(BuildContext context) {
@@ -1057,9 +949,13 @@ class _StatusCard extends StatelessWidget {
     final availableActions = status.queried
         ? status.sequenceAvailableActions
         : AttendanceAction.values.toSet();
+    final showMessage = !status.queried || hasError;
+    final displayedMessage = hasError && !message.contains('새로고침 버튼')
+        ? '$message 새로고침 버튼을 눌러 다시 확인해 주세요.'
+        : message;
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(18),
+        padding: const EdgeInsets.all(14),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -1095,13 +991,13 @@ class _StatusCard extends StatelessWidget {
                 ),
               ),
             ],
-            const SizedBox(height: 12),
+            const SizedBox(height: 8),
             _AttendanceStatusTiles(
               status: status,
               highlightedAction: highlightedAction,
             ),
-            const SizedBox(height: 16),
-            if (message.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            if (showMessage && message.isNotEmpty) ...[
               Container(
                 width: double.infinity,
                 padding: const EdgeInsets.all(12),
@@ -1112,7 +1008,7 @@ class _StatusCard extends StatelessWidget {
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Text(
-                  message,
+                  displayedMessage,
                   style: TextStyle(
                     color: hasError
                         ? colors.onErrorContainer
@@ -1120,18 +1016,7 @@ class _StatusCard extends StatelessWidget {
                   ),
                 ),
               ),
-              if (hasError && canRetry) ...[
-                const SizedBox(height: 10),
-                SizedBox(
-                  width: double.infinity,
-                  child: FilledButton.tonalIcon(
-                    onPressed: interactionLocked ? null : onRetry,
-                    icon: const Icon(Icons.refresh_rounded),
-                    label: Text(retryLabel),
-                  ),
-                ),
-              ],
-              const SizedBox(height: 12),
+              const SizedBox(height: 10),
             ],
             if (liveSnapshot?.networkAllowed == false) ...[
               Text(
@@ -1238,8 +1123,8 @@ class _AttendanceStatusTile extends StatelessWidget {
     return AnimatedContainer(
       key: ValueKey('attendance-status-${action.name}'),
       duration: const Duration(milliseconds: 250),
-      constraints: const BoxConstraints(minHeight: 86),
-      padding: const EdgeInsets.all(12),
+      constraints: const BoxConstraints(minHeight: 70),
+      padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
         color: highlighted
             ? colors.primaryContainer.withValues(alpha: 0.8)

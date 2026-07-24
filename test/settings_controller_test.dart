@@ -52,10 +52,9 @@ void main() {
         initialThemeMode: ThemeMode.system,
         isAndroid: true,
         notificationSettings: _NotificationSettings(
-          status: const NotificationPermissionStatus(
+          status: const NotificationPermissionStatus.android(
             notificationsAllowed: true,
             exactAlarmsAllowed: null,
-            exactAlarmsApplicable: true,
           ),
         ),
         callbackLinkSettings: _CallbackSettings(enabled: true),
@@ -82,10 +81,9 @@ void main() {
         initialThemeMode: ThemeMode.system,
         isAndroid: true,
         notificationSettings: _NotificationSettings(
-          status: const NotificationPermissionStatus(
+          status: const NotificationPermissionStatus.android(
             notificationsAllowed: null,
             exactAlarmsAllowed: true,
-            exactAlarmsApplicable: true,
           ),
         ),
         callbackLinkSettings: _CallbackSettings(enabled: true),
@@ -133,18 +131,16 @@ void main() {
       final olderRefresh = controller.refresh();
       final newerRefresh = controller.refresh();
       second.complete(
-        const NotificationPermissionStatus(
+        const NotificationPermissionStatus.notApplicable(
           notificationsAllowed: false,
-          exactAlarmsAllowed: null,
         ),
       );
       await newerRefresh;
       expect(controller.notificationStatus, SettingsPermissionStatus.needed);
 
       first.complete(
-        const NotificationPermissionStatus(
+        const NotificationPermissionStatus.notApplicable(
           notificationsAllowed: true,
-          exactAlarmsAllowed: null,
         ),
       );
       await olderRefresh;
@@ -171,9 +167,8 @@ void main() {
     final refresh = controller.refresh();
     controller.dispose();
     pending.complete(
-      const NotificationPermissionStatus(
+      const NotificationPermissionStatus.notApplicable(
         notificationsAllowed: true,
-        exactAlarmsAllowed: null,
       ),
     );
 
@@ -258,6 +253,7 @@ void main() {
       final darkSave = Completer<void>();
       final lightSave = Completer<void>();
       final saveCalls = <ThemeMode>[];
+      final appliedThemes = <ThemeMode>[];
       final controller = SettingsController(
         initialProfile: profile,
         initialThemeMode: ThemeMode.system,
@@ -268,6 +264,7 @@ void main() {
           const AppVersion(version: '1.2.3', buildNumber: '45'),
         ),
         editProfile: () async => null,
+        applyThemeMode: appliedThemes.add,
         persistThemeMode: (mode) {
           saveCalls.add(mode);
           return switch (mode) {
@@ -287,6 +284,7 @@ void main() {
       final secondSelection = controller.selectTheme(ThemeMode.light);
       await Future<void>.delayed(Duration.zero);
       expect(controller.themeMode, ThemeMode.light);
+      expect(appliedThemes, [ThemeMode.dark, ThemeMode.light]);
       expect(saveCalls, [ThemeMode.dark]);
 
       darkSave.complete();
@@ -335,7 +333,7 @@ class _NotificationSettings implements NotificationPermissionSettings {
   Future<NotificationPermissionStatus> getPermissionStatus() async {
     if (statusError case final error?) throw error;
     return status ??
-        const NotificationPermissionStatus(
+        const NotificationPermissionStatus.android(
           notificationsAllowed: true,
           exactAlarmsAllowed: true,
         );

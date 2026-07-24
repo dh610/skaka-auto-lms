@@ -10,12 +10,15 @@ import 'package:flutter/foundation.dart';
 /// Existing setup readiness remains strict on Android: both applicable
 /// permissions must be known and allowed.
 class NotificationPermissionStatus {
-  const NotificationPermissionStatus({
+  const NotificationPermissionStatus.android({
     required this.notificationsAllowed,
     required this.exactAlarmsAllowed,
-    bool? exactAlarmsApplicable,
-  }) : exactAlarmsApplicable =
-           exactAlarmsApplicable ?? exactAlarmsAllowed != null;
+  }) : exactAlarmsApplicable = true;
+
+  const NotificationPermissionStatus.notApplicable({
+    required this.notificationsAllowed,
+  }) : exactAlarmsAllowed = null,
+       exactAlarmsApplicable = false;
 
   final bool? notificationsAllowed;
   final bool? exactAlarmsAllowed;

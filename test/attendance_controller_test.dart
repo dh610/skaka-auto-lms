@@ -1363,7 +1363,7 @@ void main() {
     );
 
     expect(gateway.validatedToken, isNull);
-    expect(controller.message, 'Google 인증 후 출결 정보를 확인하세요.');
+    expect(controller.message, '우측 상단 새로고침 버튼을 눌러 Google 인증 후 출결 정보를 갱신하세요.');
     controller.dispose();
   });
 

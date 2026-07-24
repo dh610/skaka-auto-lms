@@ -14,6 +14,9 @@ import '../features/schedule/application/schedule_controller.dart';
 import '../features/schedule/application/notification_scheduler.dart';
 import '../features/schedule/data/schedule_store.dart';
 import '../features/schedule/data/local_notification_scheduler.dart';
+import '../features/settings/data/package_info_app_version_provider.dart';
+import '../features/settings/domain/app_version.dart';
+import '../features/settings/presentation/settings_screen.dart';
 import 'app_theme.dart';
 import 'initial_setup_screen.dart';
 import 'initial_setup_store.dart';
@@ -23,14 +26,18 @@ class SkalaAttendanceApp extends StatefulWidget {
   SkalaAttendanceApp({
     super.key,
     this.notificationScheduler,
+    this.notificationPermissionSettings,
     this.callbackLinkSettings,
+    this.appVersionProvider,
     this.initialSetupStore,
     this.profileVerifier,
     bool? isAndroid,
   }) : isAndroid = isAndroid ?? Platform.isAndroid;
 
   final NotificationScheduler? notificationScheduler;
+  final NotificationPermissionSettings? notificationPermissionSettings;
   final CallbackLinkSettings? callbackLinkSettings;
+  final AppVersionProvider? appVersionProvider;
   final InitialSetupStore? initialSetupStore;
   final ProfileVerifier? profileVerifier;
   final bool isAndroid;
@@ -46,7 +53,9 @@ class _SkalaAttendanceAppState extends State<SkalaAttendanceApp>
   final _themeModeStore = ThemeModeStore();
   late final InitialSetupStore _initialSetupStore;
   late final NotificationScheduler _notificationScheduler;
+  late final NotificationPermissionSettings _notificationPermissionSettings;
   late final CallbackLinkSettings _callbackLinkSettings;
+  late final AppVersionProvider _appVersionProvider;
   late final ScheduleController _scheduleController;
   late final Future<void> _scheduleInitialization;
   late final ProfileVerifier _profileVerifier;
@@ -61,8 +70,18 @@ class _SkalaAttendanceAppState extends State<SkalaAttendanceApp>
     WidgetsBinding.instance.addObserver(this);
     _notificationScheduler =
         widget.notificationScheduler ?? LocalNotificationScheduler();
+    _notificationPermissionSettings =
+        widget.notificationPermissionSettings ??
+        switch (_notificationScheduler) {
+          final NotificationPermissionSettings settings => settings,
+          _ => _UnavailableNotificationPermissionSettings(
+            isAndroid: widget.isAndroid,
+          ),
+        };
     _callbackLinkSettings =
         widget.callbackLinkSettings ?? PlatformCallbackLinkSettings();
+    _appVersionProvider =
+        widget.appVersionProvider ?? PackageInfoAppVersionProvider();
     _initialSetupStore = widget.initialSetupStore ?? InitialSetupStore();
     _profileVerifier = widget.profileVerifier ?? SkalaProfileVerifier();
     _scheduleController = ScheduleController(
@@ -79,11 +98,13 @@ class _SkalaAttendanceAppState extends State<SkalaAttendanceApp>
     if (mounted) setState(() => _themeMode = themeMode);
   }
 
-  Future<void> _changeThemeMode(ThemeMode themeMode) async {
+  void _applyThemeMode(ThemeMode themeMode) {
     if (_themeMode == themeMode) return;
     setState(() => _themeMode = themeMode);
-    await _themeModeStore.save(themeMode);
   }
+
+  Future<void> _persistThemeMode(ThemeMode themeMode) =>
+      _themeModeStore.save(themeMode);
 
   @override
   void dispose() {
@@ -159,10 +180,10 @@ class _SkalaAttendanceAppState extends State<SkalaAttendanceApp>
     return true;
   }
 
-  Future<void> _editProfile() async {
+  Future<UserProfile?> _editProfile() async {
     final current = _profile;
     final navigator = _navigatorKey.currentState;
-    if (current == null || navigator == null) return;
+    if (current == null || navigator == null) return null;
     final updated = await navigator.push<UserProfile>(
       MaterialPageRoute(
         builder: (_) => ProfileSetupScreen(
@@ -171,9 +192,31 @@ class _SkalaAttendanceAppState extends State<SkalaAttendanceApp>
         ),
       ),
     );
-    if (updated == null) return;
+    if (updated == null) return null;
     await _profileStore.save(updated);
     if (mounted) setState(() => _profile = updated);
+    return updated;
+  }
+
+  Future<void> _openSettings() async {
+    final current = _profile;
+    final navigator = _navigatorKey.currentState;
+    if (current == null || navigator == null) return;
+    await navigator.push<void>(
+      MaterialPageRoute(
+        builder: (_) => SettingsScreen(
+          profile: current,
+          themeMode: _themeMode,
+          isAndroid: widget.isAndroid,
+          notificationSettings: _notificationPermissionSettings,
+          callbackLinkSettings: _callbackLinkSettings,
+          appVersionProvider: _appVersionProvider,
+          onEditProfile: _editProfile,
+          onThemeModeChanged: _applyThemeMode,
+          persistThemeMode: _persistThemeMode,
+        ),
+      ),
+    );
   }
 
   @override
@@ -203,12 +246,37 @@ class _SkalaAttendanceAppState extends State<SkalaAttendanceApp>
               profile: _profile!,
               scheduleController: _scheduleController,
               notificationScheduler: _notificationScheduler,
-              onEditProfile: _editProfile,
-              themeMode: _themeMode,
-              onThemeModeChanged: _changeThemeMode,
+              onOpenSettings: _openSettings,
               callbackLinkSettings: _callbackLinkSettings,
               isAndroid: widget.isAndroid,
             ),
     );
+  }
+}
+
+class _UnavailableNotificationPermissionSettings
+    implements NotificationPermissionSettings {
+  const _UnavailableNotificationPermissionSettings({required this.isAndroid});
+
+  final bool isAndroid;
+
+  @override
+  Future<NotificationPermissionStatus> getPermissionStatus() async => isAndroid
+      ? const NotificationPermissionStatus.android(
+          notificationsAllowed: null,
+          exactAlarmsAllowed: null,
+        )
+      : const NotificationPermissionStatus.notApplicable(
+          notificationsAllowed: null,
+        );
+
+  @override
+  Future<void> openExactAlarmSettings() async {
+    throw UnsupportedError('정확한 알람 설정을 열 수 없습니다.');
+  }
+
+  @override
+  Future<void> openNotificationSettings() async {
+    throw UnsupportedError('알림 설정을 열 수 없습니다.');
   }
 }

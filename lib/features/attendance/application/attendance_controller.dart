@@ -34,7 +34,7 @@ class AttendanceController extends ChangeNotifier {
   final AttendanceStatusStore? statusStore;
 
   bool _busy = false;
-  String _message = 'Google 인증 후 출결 정보를 확인하세요.';
+  String _message = '우측 상단 새로고침 버튼을 눌러 Google 인증 후 출결 정보를 갱신하세요.';
   AttendanceSnapshot? _snapshot;
   String? _token;
   _AttendanceRecovery? _recovery;
@@ -830,7 +830,7 @@ class AttendanceController extends ChangeNotifier {
       _awaitingAuthenticationCallback = false;
       _setState(
         busy: false,
-        message: 'Google 인증이 취소되었거나 완료되지 않았습니다. 다시 시도해주세요.',
+        message: 'Google 인증이 완료되지 않았습니다. 새로고침 버튼을 눌러 다시 시도해 주세요.',
         hasError: true,
         recovery: _AttendanceRecovery.authenticate,
       );

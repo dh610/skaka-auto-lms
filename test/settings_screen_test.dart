@@ -24,7 +24,7 @@ void main() {
         themeMode: ThemeMode.dark,
         isAndroid: true,
         notifications: _NotificationSettings(
-          const NotificationPermissionStatus(
+          const NotificationPermissionStatus.android(
             notificationsAllowed: true,
             exactAlarmsAllowed: false,
           ),
@@ -67,9 +67,8 @@ void main() {
           themeMode: ThemeMode.system,
           isAndroid: false,
           notifications: _NotificationSettings(
-            const NotificationPermissionStatus(
+            const NotificationPermissionStatus.notApplicable(
               notificationsAllowed: true,
-              exactAlarmsAllowed: null,
             ),
           ),
           callbacks: callbacks,
@@ -96,7 +95,7 @@ void main() {
           themeMode: ThemeMode.light,
           isAndroid: true,
           notifications: _NotificationSettings(
-            const NotificationPermissionStatus(
+            const NotificationPermissionStatus.android(
               notificationsAllowed: true,
               exactAlarmsAllowed: false,
             ),
@@ -132,7 +131,7 @@ void main() {
     tester,
   ) async {
     final notifications = _NotificationSettings(
-      const NotificationPermissionStatus(
+      const NotificationPermissionStatus.android(
         notificationsAllowed: false,
         exactAlarmsAllowed: false,
       ),
@@ -175,9 +174,8 @@ void main() {
 
   testWidgets('settings-opening failure shows a snackbar', (tester) async {
     final notifications = _NotificationSettings(
-      const NotificationPermissionStatus(
+      const NotificationPermissionStatus.notApplicable(
         notificationsAllowed: false,
-        exactAlarmsAllowed: null,
       ),
       notificationOpenError: StateError('cannot open'),
     );
@@ -206,7 +204,7 @@ void main() {
     tester,
   ) async {
     final notifications = _NotificationSettings(
-      const NotificationPermissionStatus(
+      const NotificationPermissionStatus.android(
         notificationsAllowed: false,
         exactAlarmsAllowed: false,
       ),
@@ -228,7 +226,7 @@ void main() {
     expect(notifications.statusReadCount, 1);
     expect(callbacks.statusReadCount, 1);
 
-    notifications.status = const NotificationPermissionStatus(
+    notifications.status = const NotificationPermissionStatus.android(
       notificationsAllowed: true,
       exactAlarmsAllowed: true,
     );
@@ -259,9 +257,8 @@ void main() {
           themeMode: ThemeMode.system,
           isAndroid: false,
           notifications: _NotificationSettings(
-            const NotificationPermissionStatus(
+            const NotificationPermissionStatus.notApplicable(
               notificationsAllowed: true,
-              exactAlarmsAllowed: null,
             ),
           ),
           callbacks: _CallbackSettings(enabled: true),
@@ -304,9 +301,8 @@ void main() {
         themeMode: ThemeMode.system,
         isAndroid: false,
         notifications: _NotificationSettings(
-          const NotificationPermissionStatus(
+          const NotificationPermissionStatus.notApplicable(
             notificationsAllowed: true,
-            exactAlarmsAllowed: null,
           ),
         ),
         callbacks: _CallbackSettings(enabled: true),
@@ -359,7 +355,7 @@ void main() {
           themeMode: ThemeMode.system,
           isAndroid: true,
           notifications: _NotificationSettings(
-            const NotificationPermissionStatus(
+            const NotificationPermissionStatus.android(
               notificationsAllowed: true,
               exactAlarmsAllowed: true,
             ),
@@ -404,7 +400,8 @@ Widget _app({
       callbackLinkSettings: callbacks,
       appVersionProvider: versions,
       onEditProfile: editProfile ?? () async => null,
-      onThemeModeChanged: persistThemeMode ?? (_) async {},
+      onThemeModeChanged: (_) {},
+      persistThemeMode: persistThemeMode ?? (_) async {},
     ),
   );
 }

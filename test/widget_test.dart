@@ -122,12 +122,19 @@ void main() {
       'profile.name': '윤동현',
       'profile.region': 'P2',
       'profile.classNumber': 8,
+      'initialSetup.completed': true,
     });
     await tester.pumpWidget(
-      SkalaAttendanceApp(notificationScheduler: _NoOpNotificationScheduler()),
+      SkalaAttendanceApp(
+        notificationScheduler: _NoOpNotificationScheduler(),
+        callbackLinkSettings: _FakeCallbackLinkSettings(enabled: true),
+        isAndroid: false,
+      ),
     );
     await tester.pumpAndSettle();
 
+    await tester.tap(find.byTooltip('설정'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('사용자 정보 변경'));
     await tester.pumpAndSettle();
 
@@ -140,19 +147,26 @@ void main() {
       'profile.name': '윤동현',
       'profile.region': 'P2',
       'profile.classNumber': 8,
+      'initialSetup.completed': true,
     });
     await tester.pumpWidget(
-      SkalaAttendanceApp(notificationScheduler: _NoOpNotificationScheduler()),
+      SkalaAttendanceApp(
+        notificationScheduler: _NoOpNotificationScheduler(),
+        callbackLinkSettings: _FakeCallbackLinkSettings(enabled: true),
+        isAndroid: false,
+      ),
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byTooltip('테마 설정'));
+    await tester.tap(find.byTooltip('설정'));
     await tester.pumpAndSettle();
-    expect(find.text('시스템 설정'), findsOneWidget);
-    expect(find.text('라이트 모드'), findsOneWidget);
-    expect(find.text('다크 모드'), findsOneWidget);
+    await tester.tap(find.text('시스템 설정'));
+    await tester.pumpAndSettle();
+    expect(find.text('시스템 설정'), findsNWidgets(2));
+    expect(find.text('라이트'), findsOneWidget);
+    expect(find.text('다크'), findsOneWidget);
 
-    await tester.tap(find.text('다크 모드'));
+    await tester.tap(find.text('다크'));
     await tester.pumpAndSettle();
 
     final app = tester.widget<MaterialApp>(find.byType(MaterialApp));
@@ -527,7 +541,11 @@ void main() {
             .onPressed,
         isNotNull,
       );
-      expect(find.text('Google 인증 다시 시도'), findsOneWidget);
+      expect(
+        find.text('Google 인증이 완료되지 않았습니다. 새로고침 버튼을 눌러 다시 시도해 주세요.'),
+        findsOneWidget,
+      );
+      expect(find.text('Google 인증 다시 시도'), findsNothing);
 
       links.add(Uri.parse('https://att.skala-ai.com?token=test-token'));
       await tester.pumpAndSettle();
@@ -963,7 +981,8 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(gateway.recordCallCount, 1);
-      expect(find.text('Google 인증 다시 시도'), findsOneWidget);
+      expect(find.textContaining('인증이 만료'), findsOneWidget);
+      expect(find.text('Google 인증 다시 시도'), findsNothing);
 
       gateway.fetchError = null;
       await tester.ensureVisible(find.widgetWithText(FilledButton, '외출'));
@@ -1287,6 +1306,8 @@ void main() {
     for (var index = 1; index < positions.length; index++) {
       expect(positions[index - 1].dy, lessThan(positions[index].dy));
     }
+    await tester.scrollUntilVisible(find.text('오늘 예정된 동작'), 200);
+    expect(find.text('오늘 예정된 동작'), findsOneWidget);
     expect(tester.takeException(), isNull);
 
     await links.close();
@@ -1571,7 +1592,7 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    expect(find.text('윤동현님, 안녕하세요'), findsOneWidget);
+    expect(find.textContaining('오늘 출결 ·'), findsOneWidget);
 
     notifications.granted = false;
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
@@ -1625,7 +1646,7 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    expect(find.text('윤동현님, 안녕하세요'), findsOneWidget);
+    expect(find.textContaining('오늘 출결 ·'), findsOneWidget);
 
     notifications.granted = false;
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
@@ -1637,7 +1658,7 @@ void main() {
     await tester.tap(find.text('일정 알림'));
     await tester.pumpAndSettle();
 
-    expect(find.text('윤동현님, 안녕하세요'), findsOneWidget);
+    expect(find.textContaining('오늘 출결 ·'), findsOneWidget);
     expect(notifications.syncCount, syncCountBeforeRecovery + 1);
   });
 
@@ -1660,7 +1681,7 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    expect(find.text('윤동현님, 안녕하세요'), findsOneWidget);
+    expect(find.textContaining('오늘 출결 ·'), findsOneWidget);
 
     links.enabled = false;
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
@@ -2781,7 +2802,7 @@ void main() {
 
       expect(find.text('초기 설정'), findsOneWidget);
       expect(find.textContaining('알림을 예약하지 못했습니다'), findsOneWidget);
-      expect(find.text('윤동현님, 안녕하세요'), findsNothing);
+      expect(find.textContaining('오늘 출결 ·'), findsNothing);
       final preferences = await SharedPreferences.getInstance();
       expect(preferences.getBool('initialSetup.completed'), isNot(true));
 
@@ -2789,7 +2810,7 @@ void main() {
       await tester.tap(find.text('설정 완료'));
       await tester.pumpAndSettle();
 
-      expect(find.text('윤동현님, 안녕하세요'), findsOneWidget);
+      expect(find.textContaining('오늘 출결 ·'), findsOneWidget);
       expect(preferences.getBool('initialSetup.completed'), isTrue);
     },
   );

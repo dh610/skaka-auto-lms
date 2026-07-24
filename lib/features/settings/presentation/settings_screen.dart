@@ -19,7 +19,8 @@ class SettingsScreen extends StatefulWidget {
     required this.appVersionProvider,
     required this.onEditProfile,
     required this.onThemeModeChanged,
-  });
+    Future<void> Function(ThemeMode)? persistThemeMode,
+  }) : persistThemeMode = persistThemeMode ?? _noOpThemePersistence;
 
   final UserProfile profile;
   final ThemeMode themeMode;
@@ -28,7 +29,8 @@ class SettingsScreen extends StatefulWidget {
   final CallbackLinkSettings callbackLinkSettings;
   final AppVersionProvider appVersionProvider;
   final Future<UserProfile?> Function() onEditProfile;
-  final Future<void> Function(ThemeMode) onThemeModeChanged;
+  final ValueChanged<ThemeMode> onThemeModeChanged;
+  final Future<void> Function(ThemeMode) persistThemeMode;
 
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
@@ -49,7 +51,8 @@ class _SettingsScreenState extends State<SettingsScreen>
       callbackLinkSettings: widget.callbackLinkSettings,
       appVersionProvider: widget.appVersionProvider,
       editProfile: widget.onEditProfile,
-      persistThemeMode: widget.onThemeModeChanged,
+      applyThemeMode: widget.onThemeModeChanged,
+      persistThemeMode: widget.persistThemeMode,
     );
     WidgetsBinding.instance.addObserver(this);
     unawaited(_controller.refresh());
@@ -174,6 +177,8 @@ class _SettingsScreenState extends State<SettingsScreen>
     );
   }
 }
+
+Future<void> _noOpThemePersistence(ThemeMode _) async {}
 
 class _SectionTitle extends StatelessWidget {
   const _SectionTitle(this.label);

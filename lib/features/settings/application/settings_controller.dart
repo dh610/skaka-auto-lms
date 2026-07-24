@@ -18,6 +18,7 @@ class SettingsController extends ChangeNotifier {
     required CallbackLinkSettings callbackLinkSettings,
     required AppVersionProvider appVersionProvider,
     required Future<UserProfile?> Function() editProfile,
+    void Function(ThemeMode)? applyThemeMode,
     required Future<void> Function(ThemeMode) persistThemeMode,
   }) : _profile = initialProfile,
        _themeMode = initialThemeMode,
@@ -27,6 +28,7 @@ class SettingsController extends ChangeNotifier {
          callbackLinkSettings: callbackLinkSettings,
          appVersionProvider: appVersionProvider,
          editProfile: editProfile,
+         applyThemeMode: applyThemeMode ?? (_) {},
          persistThemeMode: persistThemeMode,
        );
 
@@ -36,6 +38,7 @@ class SettingsController extends ChangeNotifier {
     CallbackLinkSettings callbackLinkSettings,
     AppVersionProvider appVersionProvider,
     Future<UserProfile?> Function() editProfile,
+    void Function(ThemeMode) applyThemeMode,
     Future<void> Function(ThemeMode) persistThemeMode,
   })
   _dependencies;
@@ -184,6 +187,7 @@ class SettingsController extends ChangeNotifier {
     if (_disposed || _themeMode == themeMode) return null;
     _themeMode = themeMode;
     notifyListeners();
+    _dependencies.applyThemeMode(themeMode);
     final persistence = _themePersistenceTail.then(
       (_) => _dependencies.persistThemeMode(themeMode),
     );

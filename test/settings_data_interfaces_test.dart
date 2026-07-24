@@ -10,7 +10,7 @@ void main() {
   test('Android readiness requires both notification permissions', () async {
     final scheduler = LocalNotificationScheduler(
       permissionPlatform: _FakeNotificationPermissionPlatform(
-        status: const NotificationPermissionStatus(
+        status: const NotificationPermissionStatus.android(
           notificationsAllowed: true,
           exactAlarmsAllowed: false,
         ),
@@ -23,7 +23,7 @@ void main() {
   test('Android readiness also rejects denied notifications', () async {
     final scheduler = LocalNotificationScheduler(
       permissionPlatform: _FakeNotificationPermissionPlatform(
-        status: const NotificationPermissionStatus(
+        status: const NotificationPermissionStatus.android(
           notificationsAllowed: false,
           exactAlarmsAllowed: true,
         ),
@@ -80,15 +80,24 @@ void main() {
   test(
     'iOS exact alarms are not applicable while notifications stay ready',
     () {
-      const status = NotificationPermissionStatus(
+      const status = NotificationPermissionStatus.notApplicable(
         notificationsAllowed: true,
-        exactAlarmsAllowed: null,
       );
 
       expect(status.exactAlarmsApplicable, isFalse);
       expect(status.arePermissionsGranted, isTrue);
     },
   );
+
+  test('Android unknown exact alarm state remains fail-closed', () {
+    const status = NotificationPermissionStatus.android(
+      notificationsAllowed: true,
+      exactAlarmsAllowed: null,
+    );
+
+    expect(status.exactAlarmsApplicable, isTrue);
+    expect(status.arePermissionsGranted, isFalse);
+  });
 
   test('package version provider maps installed package metadata', () async {
     final provider = PackageInfoAppVersionProvider(

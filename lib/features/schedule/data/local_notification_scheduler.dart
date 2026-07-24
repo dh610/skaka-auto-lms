@@ -203,10 +203,9 @@ class FlutterNotificationPermissionPlatform
         readExactAlarmsAllowed ??
             () async => await android?.canScheduleExactNotifications() ?? false,
       );
-      return NotificationPermissionStatus(
+      return NotificationPermissionStatus.android(
         notificationsAllowed: notificationsAllowed,
         exactAlarmsAllowed: exactAlarmsAllowed,
-        exactAlarmsApplicable: true,
       );
     }
     if (_isIOS) {
@@ -221,14 +220,12 @@ class FlutterNotificationPermissionPlatform
               return permissions?.isEnabled ?? false;
             },
       );
-      return NotificationPermissionStatus(
+      return NotificationPermissionStatus.notApplicable(
         notificationsAllowed: notificationsAllowed,
-        exactAlarmsAllowed: null,
       );
     }
-    return const NotificationPermissionStatus(
+    return const NotificationPermissionStatus.notApplicable(
       notificationsAllowed: false,
-      exactAlarmsAllowed: null,
     );
   }
 
