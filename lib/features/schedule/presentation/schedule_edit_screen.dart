@@ -320,6 +320,30 @@ class _ScheduleEditScreenState extends State<ScheduleEditScreen> {
             ),
             const SizedBox(height: 28),
             const _SectionTitle(
+              title: '실행 시각',
+              description: '선택한 시각에 출결 인증 알림을 표시합니다.',
+            ),
+            const SizedBox(height: 12),
+            Card(
+              child: ListTile(
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 10,
+                ),
+                leading: const Icon(Icons.schedule_outlined),
+                title: const Text('알림 시각'),
+                trailing: Text(
+                  formatDisplayTime(_time.hour, _time.minute),
+                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                    fontWeight: FontWeight.w800,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                ),
+                onTap: _pickTime,
+              ),
+            ),
+            const SizedBox(height: 28),
+            const _SectionTitle(
               title: '반복 방식',
               description: '요일을 반복하거나 과정 기간 내 날짜를 직접 지정할 수 있습니다.',
             ),
@@ -415,30 +439,6 @@ class _ScheduleEditScreenState extends State<ScheduleEditScreen> {
                   child: Text('직접 지정한 일정은 공휴일에도 실행 대상으로 유지됩니다.'),
                 ),
             ],
-            const SizedBox(height: 24),
-            const _SectionTitle(
-              title: '실행 시각',
-              description: '선택한 시각에 출결 인증 알림을 표시합니다.',
-            ),
-            const SizedBox(height: 12),
-            Card(
-              child: ListTile(
-                contentPadding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 10,
-                ),
-                leading: const Icon(Icons.schedule_outlined),
-                title: const Text('알림 시각'),
-                trailing: Text(
-                  formatDisplayTime(_time.hour, _time.minute),
-                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                    fontWeight: FontWeight.w800,
-                    color: Theme.of(context).colorScheme.primary,
-                  ),
-                ),
-                onTap: _pickTime,
-              ),
-            ),
             const SizedBox(height: 24),
             const _SectionTitle(
               title: '알람 설정',

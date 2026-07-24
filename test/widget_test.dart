@@ -1770,9 +1770,21 @@ void main() {
   testWidgets('schedule editor switches between weekly and one-time modes', (
     tester,
   ) async {
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    tester.view.physicalSize = const Size(1080, 2400);
+    tester.view.devicePixelRatio = 1;
     await tester.pumpWidget(const MaterialApp(home: ScheduleEditScreen()));
 
     expect(find.text('공휴일 제외'), findsOneWidget);
+    expect(
+      tester.getTopLeft(find.text('출결 동작')).dy,
+      lessThan(tester.getTopLeft(find.text('실행 시각')).dy),
+    );
+    expect(
+      tester.getTopLeft(find.text('실행 시각')).dy,
+      lessThan(tester.getTopLeft(find.text('반복 방식')).dy),
+    );
     await tester.tap(find.text('날짜 지정'));
     await tester.pumpAndSettle();
 
