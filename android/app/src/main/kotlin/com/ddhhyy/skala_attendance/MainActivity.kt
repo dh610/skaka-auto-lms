@@ -26,6 +26,14 @@ class MainActivity : FlutterActivity() {
                     else -> result.notImplemented()
                 }
             }
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "skala_attendance/settings")
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "openNotificationSettings" -> openNotificationSettings(result)
+                    "openExactAlarmSettings" -> openExactAlarmSettings(result)
+                    else -> result.notImplemented()
+                }
+            }
     }
 
     private fun openCustomTab(rawUrl: String?, result: MethodChannel.Result) {
@@ -67,5 +75,37 @@ class MainActivity : FlutterActivity() {
             startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, packageUri))
             result.success(null)
         }
+    }
+
+    private fun openNotificationSettings(result: MethodChannel.Result) {
+        val notificationIntent = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+            .putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
+        openSettingsWithAppDetailsFallback(notificationIntent, result)
+    }
+
+    private fun openExactAlarmSettings(result: MethodChannel.Result) {
+        val packageUri = Uri.parse("package:$packageName")
+        val exactAlarmIntent = Intent(
+            Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM,
+            packageUri,
+        )
+        openSettingsWithAppDetailsFallback(exactAlarmIntent, result)
+    }
+
+    private fun openSettingsWithAppDetailsFallback(
+        intent: Intent,
+        result: MethodChannel.Result,
+    ) {
+        try {
+            startActivity(intent)
+        } catch (_: ActivityNotFoundException) {
+            startActivity(
+                Intent(
+                    Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                    Uri.parse("package:$packageName"),
+                ),
+            )
+        }
+        result.success(null)
     }
 }
