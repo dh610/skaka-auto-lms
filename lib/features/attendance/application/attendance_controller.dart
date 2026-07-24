@@ -44,6 +44,7 @@ class AttendanceController extends ChangeNotifier {
   DateTime? _snapshotKoreaDate;
   late DailyAttendanceStatus _dailyStatus;
   int _sessionRevision = 0;
+  Future<void> _statusStoreOperation = Future.value();
   Map<String, DateTime> _completedOccurrences = {};
   Map<String, DateTime> _skippedOccurrences = {};
 
@@ -68,9 +69,11 @@ class AttendanceController extends ChangeNotifier {
     final store = statusStore;
     if (store == null) return;
     final sessionRevision = _sessionRevision;
+    final statusRevision = _statusRevision;
     final koreaDate = _koreaDate(_now());
     final restored = await store.loadFor(koreaDate);
     if (!_operationIsCurrent(sessionRevision, koreaDate) ||
+        statusRevision != _statusRevision ||
         restored.koreaDate != koreaDate) {
       return;
     }
@@ -434,7 +437,7 @@ class AttendanceController extends ChangeNotifier {
     final store = statusStore;
     if (store == null) return;
     try {
-      await store.save(status);
+      await _enqueueStatusStoreOperation(() => store.save(status));
     } catch (_) {
       // Saving display-only cache data must not change server success state.
     }
@@ -443,14 +446,20 @@ class AttendanceController extends ChangeNotifier {
   void _clearDailyStatusStore() {
     final store = statusStore;
     if (store == null) return;
-    unawaited(_clearDailyStatusStoreIgnoringErrors(store));
+    unawaited(
+      _ignoreStatusStoreErrors(_enqueueStatusStoreOperation(store.clear)),
+    );
   }
 
-  Future<void> _clearDailyStatusStoreIgnoringErrors(
-    AttendanceStatusStore store,
-  ) async {
+  Future<void> _enqueueStatusStoreOperation(Future<void> Function() operation) {
+    final queued = _statusStoreOperation.then((_) => operation());
+    _statusStoreOperation = queued.catchError((_) {});
+    return queued;
+  }
+
+  Future<void> _ignoreStatusStoreErrors(Future<void> operation) async {
     try {
-      await store.clear();
+      await operation;
     } catch (_) {
       // The session is already cleared in memory.
     }

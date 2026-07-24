@@ -66,169 +66,299 @@ void main() {
     },
   );
 
-  test('successful callback saves display status for a new controller', () async {
-    final now = DateTime.utc(2026, 7, 24, 3);
+  test(
+    'successful callback saves display status for a new controller',
+    () async {
+      final now = DateTime.utc(2026, 7, 24, 3);
+      final store = _FakeAttendanceStatusStore();
+      final first = AttendanceController(
+        profile,
+        _FakeAttendanceGateway(),
+        isAndroid: true,
+        statusStore: store,
+        now: () => now,
+      );
+
+      await first.handleCallback(
+        Uri.parse('https://att.skala-ai.com/?token=test-token'),
+      );
+
+      expect(first.dailyStatus.queried, isTrue);
+      expect(first.dailyStatus.checkInTime, '09:00');
+      expect(store.savedStatus?.checkInTime, '09:00');
+      first.dispose();
+
+      final restored = AttendanceController(
+        profile,
+        _FakeAttendanceGateway(),
+        statusStore: store,
+        now: () => now,
+      );
+      await restored.loadDailyStatus();
+
+      expect(restored.dailyStatus.queried, isTrue);
+      expect(restored.snapshot, isNull);
+      expect(restored.authenticated, isFalse);
+      restored.dispose();
+    },
+  );
+
+  test(
+    'a display-status save failure preserves successful server status',
+    () async {
+      final store = _FakeAttendanceStatusStore()
+        ..saveError = StateError('full');
+      final controller = AttendanceController(
+        profile,
+        _FakeAttendanceGateway(),
+        isAndroid: true,
+        statusStore: store,
+        now: () => DateTime.utc(2026, 7, 24, 3),
+      );
+
+      await controller.handleCallback(
+        Uri.parse('https://att.skala-ai.com/?token=test-token'),
+      );
+
+      expect(controller.dailyStatus.queried, isTrue);
+      expect(controller.statusRevision, 1);
+      expect(controller.message, '인증 및 상태 조회에 성공했습니다.');
+      controller.dispose();
+    },
+  );
+
+  test(
+    'profile changes clear daily display state and persisted status',
+    () async {
+      final now = DateTime.utc(2026, 7, 24, 3);
+      final clearStarted = Completer<void>();
+      final store = _FakeAttendanceStatusStore()..clearStarted = clearStarted;
+      final controller = AttendanceController(
+        profile,
+        _FakeAttendanceGateway(),
+        isAndroid: true,
+        statusStore: store,
+        now: () => now,
+      );
+      await controller.handleCallback(
+        Uri.parse('https://att.skala-ai.com/?token=test-token'),
+      );
+
+      controller.updateProfile(
+        const UserProfile(
+          name: '다른 사용자',
+          region: CampusRegion.pangyo5f,
+          classNumber: 9,
+        ),
+      );
+      await clearStarted.future;
+
+      expect(controller.dailyStatus.queried, isFalse);
+      expect(controller.dailyStatus.koreaDate, DateTime.utc(2026, 7, 24));
+      expect(store.savedStatus, isNull);
+      expect(store.clearCallCount, 1);
+      controller.dispose();
+    },
+  );
+
+  test(
+    'Korean midnight clears daily display state and persisted status',
+    () async {
+      var now = DateTime.utc(2026, 7, 24, 14, 59, 59);
+      final clearStarted = Completer<void>();
+      final store = _FakeAttendanceStatusStore()..clearStarted = clearStarted;
+      final controller = AttendanceController(
+        profile,
+        _FakeAttendanceGateway(),
+        isAndroid: true,
+        statusStore: store,
+        now: () => now,
+      );
+      await controller.handleCallback(
+        Uri.parse('https://att.skala-ai.com/?token=test-token'),
+      );
+
+      now = DateTime.utc(2026, 7, 24, 15);
+      expect(controller.invalidateExpiredDailyState(), isTrue);
+      await clearStarted.future;
+
+      expect(controller.dailyStatus.queried, isFalse);
+      expect(controller.dailyStatus.koreaDate, DateTime.utc(2026, 7, 25));
+      expect(store.savedStatus, isNull);
+      expect(store.clearCallCount, 1);
+      controller.dispose();
+    },
+  );
+
+  test(
+    'a stale daily-status load cannot restore state after a profile change',
+    () async {
+      final gate = Completer<DailyAttendanceStatus>();
+      final store = _FakeAttendanceStatusStore()..loadGate = gate;
+      final controller = AttendanceController(
+        profile,
+        _FakeAttendanceGateway(),
+        statusStore: store,
+        now: () => DateTime.utc(2026, 7, 24, 3),
+      );
+
+      final load = controller.loadDailyStatus();
+      controller.updateProfile(
+        const UserProfile(
+          name: '다른 사용자',
+          region: CampusRegion.pangyo5f,
+          classNumber: 9,
+        ),
+      );
+      gate.complete(
+        DailyAttendanceStatus.queried(
+          koreaDate: DateTime.utc(2026, 7, 24),
+          fetchedAt: DateTime.utc(2026, 7, 24, 3),
+          checkInTime: '09:00',
+        ),
+      );
+      await load;
+
+      expect(controller.dailyStatus.queried, isFalse);
+      controller.dispose();
+    },
+  );
+
+  test(
+    'a stale daily-status load cannot restore state after Korean midnight',
+    () async {
+      var now = DateTime.utc(2026, 7, 24, 14, 59, 59);
+      final gate = Completer<DailyAttendanceStatus>();
+      final store = _FakeAttendanceStatusStore()..loadGate = gate;
+      final controller = AttendanceController(
+        profile,
+        _FakeAttendanceGateway(),
+        statusStore: store,
+        now: () => now,
+      );
+
+      final load = controller.loadDailyStatus();
+      now = DateTime.utc(2026, 7, 24, 15);
+      expect(controller.invalidateExpiredDailyState(), isTrue);
+      gate.complete(
+        DailyAttendanceStatus.queried(
+          koreaDate: DateTime.utc(2026, 7, 24),
+          fetchedAt: DateTime.utc(2026, 7, 24, 3),
+          checkInTime: '09:00',
+        ),
+      );
+      await load;
+
+      expect(controller.dailyStatus.queried, isFalse);
+      expect(controller.dailyStatus.koreaDate, DateTime.utc(2026, 7, 25));
+      controller.dispose();
+    },
+  );
+
+  test(
+    'profile reset clears a status save that was already in flight',
+    () async {
+      final saveGate = Completer<void>();
+      final saveStarted = Completer<void>();
+      final clearStarted = Completer<void>();
+      final store = _FakeAttendanceStatusStore()
+        ..saveGate = saveGate
+        ..saveStarted = saveStarted
+        ..clearStarted = clearStarted;
+      final controller = AttendanceController(
+        profile,
+        _FakeAttendanceGateway(),
+        isAndroid: true,
+        statusStore: store,
+        now: () => DateTime.utc(2026, 7, 24, 3),
+      );
+
+      final callback = controller.handleCallback(
+        Uri.parse('https://att.skala-ai.com/?token=test-token'),
+      );
+      await saveStarted.future;
+      controller.updateProfile(
+        const UserProfile(
+          name: '다른 사용자',
+          region: CampusRegion.pangyo5f,
+          classNumber: 9,
+        ),
+      );
+      saveGate.complete();
+      await callback;
+      await clearStarted.future;
+
+      expect(store.savedStatus, isNull);
+      controller.dispose();
+    },
+  );
+
+  test(
+    'Korean-date reset clears a status save that was already in flight',
+    () async {
+      var now = DateTime.utc(2026, 7, 24, 14, 59, 59);
+      final saveGate = Completer<void>();
+      final saveStarted = Completer<void>();
+      final clearStarted = Completer<void>();
+      final store = _FakeAttendanceStatusStore()
+        ..saveGate = saveGate
+        ..saveStarted = saveStarted
+        ..clearStarted = clearStarted;
+      final controller = AttendanceController(
+        profile,
+        _FakeAttendanceGateway(),
+        isAndroid: true,
+        statusStore: store,
+        now: () => now,
+      );
+
+      final callback = controller.handleCallback(
+        Uri.parse('https://att.skala-ai.com/?token=test-token'),
+      );
+      await saveStarted.future;
+      now = DateTime.utc(2026, 7, 24, 15);
+      expect(controller.invalidateExpiredDailyState(), isTrue);
+      saveGate.complete();
+      await callback;
+      await clearStarted.future;
+
+      expect(store.savedStatus, isNull);
+      controller.dispose();
+    },
+  );
+
+  test('a delayed cache load cannot overwrite a newer live status', () async {
     final store = _FakeAttendanceStatusStore();
-    final first = AttendanceController(
-      profile,
-      _FakeAttendanceGateway(),
-      isAndroid: true,
-      statusStore: store,
-      now: () => now,
-    );
-
-    await first.handleCallback(
-      Uri.parse('https://att.skala-ai.com/?token=test-token'),
-    );
-
-    expect(first.dailyStatus.queried, isTrue);
-    expect(first.dailyStatus.checkInTime, '09:00');
-    expect(store.savedStatus?.checkInTime, '09:00');
-    first.dispose();
-
-    final restored = AttendanceController(
-      profile,
-      _FakeAttendanceGateway(),
-      statusStore: store,
-      now: () => now,
-    );
-    await restored.loadDailyStatus();
-
-    expect(restored.dailyStatus.queried, isTrue);
-    expect(restored.snapshot, isNull);
-    expect(restored.authenticated, isFalse);
-    restored.dispose();
-  });
-
-  test('a display-status save failure preserves successful server status', () async {
-    final store = _FakeAttendanceStatusStore()..saveError = StateError('full');
+    final gateway = _FakeAttendanceGateway();
     final controller = AttendanceController(
       profile,
-      _FakeAttendanceGateway(),
+      gateway,
       isAndroid: true,
       statusStore: store,
       now: () => DateTime.utc(2026, 7, 24, 3),
     );
-
     await controller.handleCallback(
       Uri.parse('https://att.skala-ai.com/?token=test-token'),
     );
 
-    expect(controller.dailyStatus.queried, isTrue);
-    expect(controller.statusRevision, 1);
-    expect(controller.message, '인증 및 상태 조회에 성공했습니다.');
-    controller.dispose();
-  });
-
-  test('profile changes clear daily display state and persisted status', () async {
-    final now = DateTime.utc(2026, 7, 24, 3);
-    final store = _FakeAttendanceStatusStore();
-    final controller = AttendanceController(
-      profile,
-      _FakeAttendanceGateway(),
-      isAndroid: true,
-      statusStore: store,
-      now: () => now,
-    );
-    await controller.handleCallback(
-      Uri.parse('https://att.skala-ai.com/?token=test-token'),
-    );
-
-    controller.updateProfile(
-      const UserProfile(
-        name: '다른 사용자',
-        region: CampusRegion.pangyo5f,
-        classNumber: 9,
-      ),
-    );
-
-    expect(controller.dailyStatus.queried, isFalse);
-    expect(controller.dailyStatus.koreaDate, DateTime.utc(2026, 7, 24));
-    expect(store.savedStatus, isNull);
-    expect(store.clearCallCount, 1);
-    controller.dispose();
-  });
-
-  test('Korean midnight clears daily display state and persisted status', () async {
-    var now = DateTime.utc(2026, 7, 24, 14, 59, 59);
-    final store = _FakeAttendanceStatusStore();
-    final controller = AttendanceController(
-      profile,
-      _FakeAttendanceGateway(),
-      isAndroid: true,
-      statusStore: store,
-      now: () => now,
-    );
-    await controller.handleCallback(
-      Uri.parse('https://att.skala-ai.com/?token=test-token'),
-    );
-
-    now = DateTime.utc(2026, 7, 24, 15);
-    expect(controller.invalidateExpiredDailyState(), isTrue);
-
-    expect(controller.dailyStatus.queried, isFalse);
-    expect(controller.dailyStatus.koreaDate, DateTime.utc(2026, 7, 25));
-    expect(store.savedStatus, isNull);
-    expect(store.clearCallCount, 1);
-    controller.dispose();
-  });
-
-  test('a stale daily-status load cannot restore state after a profile change', () async {
-    final gate = Completer<DailyAttendanceStatus>();
-    final store = _FakeAttendanceStatusStore()..loadGate = gate;
-    final controller = AttendanceController(
-      profile,
-      _FakeAttendanceGateway(),
-      statusStore: store,
-      now: () => DateTime.utc(2026, 7, 24, 3),
-    );
-
+    final loadGate = Completer<DailyAttendanceStatus>();
+    store.loadGate = loadGate;
     final load = controller.loadDailyStatus();
-    controller.updateProfile(
-      const UserProfile(
-        name: '다른 사용자',
-        region: CampusRegion.pangyo5f,
-        classNumber: 9,
-      ),
+    gateway.snapshot = const AttendanceSnapshot(
+      networkAllowed: true,
+      checkInTime: '10:00',
     );
-    gate.complete(
+    await controller.refreshStatus();
+    loadGate.complete(
       DailyAttendanceStatus.queried(
         koreaDate: DateTime.utc(2026, 7, 24),
-        fetchedAt: DateTime.utc(2026, 7, 24, 3),
-        checkInTime: '09:00',
+        fetchedAt: DateTime.utc(2026, 7, 24, 2),
+        checkInTime: '08:00',
       ),
     );
     await load;
 
-    expect(controller.dailyStatus.queried, isFalse);
-    controller.dispose();
-  });
-
-  test('a stale daily-status load cannot restore state after Korean midnight', () async {
-    var now = DateTime.utc(2026, 7, 24, 14, 59, 59);
-    final gate = Completer<DailyAttendanceStatus>();
-    final store = _FakeAttendanceStatusStore()..loadGate = gate;
-    final controller = AttendanceController(
-      profile,
-      _FakeAttendanceGateway(),
-      statusStore: store,
-      now: () => now,
-    );
-
-    final load = controller.loadDailyStatus();
-    now = DateTime.utc(2026, 7, 24, 15);
-    expect(controller.invalidateExpiredDailyState(), isTrue);
-    gate.complete(
-      DailyAttendanceStatus.queried(
-        koreaDate: DateTime.utc(2026, 7, 24),
-        fetchedAt: DateTime.utc(2026, 7, 24, 3),
-        checkInTime: '09:00',
-      ),
-    );
-    await load;
-
-    expect(controller.dailyStatus.queried, isFalse);
-    expect(controller.dailyStatus.koreaDate, DateTime.utc(2026, 7, 25));
+    expect(controller.dailyStatus.checkInTime, '10:00');
     controller.dispose();
   });
 
@@ -719,6 +849,9 @@ class _FakeAttendanceStatusStore extends AttendanceStatusStore {
   DailyAttendanceStatus? savedStatus;
   Object? saveError;
   Completer<DailyAttendanceStatus>? loadGate;
+  Completer<void>? saveGate;
+  Completer<void>? saveStarted;
+  Completer<void>? clearStarted;
   int clearCallCount = 0;
 
   @override
@@ -729,12 +862,17 @@ class _FakeAttendanceStatusStore extends AttendanceStatusStore {
 
   @override
   Future<void> save(DailyAttendanceStatus status) async {
+    final started = saveStarted;
+    if (started != null && !started.isCompleted) started.complete();
+    await saveGate?.future;
     if (saveError case final error?) throw error;
     savedStatus = status;
   }
 
   @override
   Future<void> clear() async {
+    final started = clearStarted;
+    if (started != null && !started.isCompleted) started.complete();
     clearCallCount++;
     savedStatus = null;
   }
