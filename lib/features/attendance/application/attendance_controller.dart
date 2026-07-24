@@ -7,7 +7,9 @@ import '../../profile/domain/user_profile.dart';
 import '../../schedule/domain/attendance_schedule.dart';
 import '../data/attendance_completion_store.dart';
 import '../data/attendance_gateway.dart';
+import '../data/attendance_status_store.dart';
 import '../domain/attendance_snapshot.dart';
+import '../domain/daily_attendance_status.dart';
 
 class AttendanceController extends ChangeNotifier {
   AttendanceController(
@@ -15,15 +17,19 @@ class AttendanceController extends ChangeNotifier {
     this._gateway, {
     bool? isAndroid,
     this.completionStore,
+    this.statusStore,
     DateTime Function()? now,
   }) : _isAndroid = isAndroid ?? Platform.isAndroid,
-       _now = now ?? DateTime.now;
+       _now = now ?? DateTime.now {
+    _dailyStatus = DailyAttendanceStatus.unqueried(_koreaDate(_now()));
+  }
 
   UserProfile _profile;
   final AttendanceGateway _gateway;
   final bool _isAndroid;
   final DateTime Function() _now;
   final AttendanceCompletionStore? completionStore;
+  final AttendanceStatusStore? statusStore;
 
   bool _busy = false;
   String _message = 'Google 인증 후 출결 정보를 확인하세요.';
@@ -36,6 +42,7 @@ class AttendanceController extends ChangeNotifier {
   AttendanceAction? _lastCompletedAction;
   AttendanceAction? _pendingActionConfirmation;
   DateTime? _snapshotKoreaDate;
+  late DailyAttendanceStatus _dailyStatus;
   int _sessionRevision = 0;
   Map<String, DateTime> _completedOccurrences = {};
   Map<String, DateTime> _skippedOccurrences = {};
@@ -43,6 +50,7 @@ class AttendanceController extends ChangeNotifier {
   bool get busy => _busy;
   String get message => _message;
   AttendanceSnapshot? get snapshot => _snapshot;
+  DailyAttendanceStatus get dailyStatus => _dailyStatus;
   bool get authenticated => _token != null;
   bool get hasError => _hasError;
   int get statusRevision => _statusRevision;
@@ -55,6 +63,20 @@ class AttendanceController extends ChangeNotifier {
     _AttendanceRecovery.refresh => '출결 상태 다시 조회',
     _ => 'Google 인증 다시 시도',
   };
+
+  Future<void> loadDailyStatus() async {
+    final store = statusStore;
+    if (store == null) return;
+    final sessionRevision = _sessionRevision;
+    final koreaDate = _koreaDate(_now());
+    final restored = await store.loadFor(koreaDate);
+    if (!_operationIsCurrent(sessionRevision, koreaDate) ||
+        restored.koreaDate != koreaDate) {
+      return;
+    }
+    _dailyStatus = restored;
+    notifyListeners();
+  }
 
   bool wasScheduleCompleted(AttendanceSchedule schedule, DateTime date) {
     return _occurrenceWasRecorded(_completedOccurrences, schedule, date);
@@ -122,9 +144,11 @@ class AttendanceController extends ChangeNotifier {
     _lastCompletedAction = null;
     _pendingActionConfirmation = null;
     _snapshotKoreaDate = null;
+    _dailyStatus = DailyAttendanceStatus.unqueried(_koreaDate(_now()));
     _completedOccurrences = {};
     _skippedOccurrences = {};
     if (completionStore case final store?) unawaited(store.clear());
+    _clearDailyStatusStore();
     _setState(
       busy: false,
       clearSnapshot: true,
@@ -200,7 +224,7 @@ class AttendanceController extends ChangeNotifier {
       final snapshot = await _gateway.fetchToday(token);
       if (!_operationIsCurrent(sessionRevision, operationDate)) return;
       _token = token;
-      _publishSnapshot(
+      await _publishSnapshot(
         snapshot,
         message: '인증 및 상태 조회에 성공했습니다.',
         koreaDate: operationDate,
@@ -246,7 +270,7 @@ class AttendanceController extends ChangeNotifier {
       if (!updated.reflects(action)) {
         throw StateError('서버 상태에서 ${action.label} 반영을 확인하지 못했습니다.');
       }
-      _publishSnapshot(
+      await _publishSnapshot(
         updated,
         message: '${action.label} 처리가 완료되었습니다.',
         completedAction: action,
@@ -321,7 +345,7 @@ class AttendanceController extends ChangeNotifier {
       if (pendingAction != null && !snapshot.reflects(pendingAction)) {
         throw StateError('서버 상태에서 ${pendingAction.label} 반영을 확인하지 못했습니다.');
       }
-      _publishSnapshot(
+      await _publishSnapshot(
         snapshot,
         message: pendingAction == null
             ? '현재 출결 상태를 다시 확인했습니다.'
@@ -343,13 +367,19 @@ class AttendanceController extends ChangeNotifier {
     }
   }
 
-  void _publishSnapshot(
+  Future<void> _publishSnapshot(
     AttendanceSnapshot snapshot, {
     required String message,
     AttendanceAction? completedAction,
     DateTime? koreaDate,
-  }) {
-    _snapshotKoreaDate = koreaDate ?? _koreaDate(_now());
+  }) async {
+    final snapshotDate = koreaDate ?? _koreaDate(_now());
+    _snapshotKoreaDate = snapshotDate;
+    _dailyStatus = DailyAttendanceStatus.fromSnapshot(
+      koreaDate: snapshotDate,
+      fetchedAt: _now(),
+      snapshot: snapshot,
+    );
     _statusRevision++;
     if (completedAction != null) {
       _completionRevision++;
@@ -357,11 +387,14 @@ class AttendanceController extends ChangeNotifier {
       _pendingActionConfirmation = null;
     }
     _setState(snapshot: snapshot, message: message, clearRecovery: true);
+    await _saveDailyStatus(_dailyStatus);
   }
 
   bool invalidateExpiredDailyState() {
     final snapshotDate = _snapshotKoreaDate;
-    if (snapshotDate == null || snapshotDate == _koreaDate(_now())) {
+    final koreaDate = _koreaDate(_now());
+    if ((snapshotDate == null || snapshotDate == koreaDate) &&
+        _dailyStatus.koreaDate == koreaDate) {
       return false;
     }
     _expireDailySession();
@@ -385,6 +418,7 @@ class AttendanceController extends ChangeNotifier {
     _sessionRevision++;
     _token = null;
     _snapshotKoreaDate = null;
+    _dailyStatus = DailyAttendanceStatus.unqueried(_koreaDate(_now()));
     _lastCompletedAction = null;
     _pendingActionConfirmation = null;
     _setState(
@@ -393,6 +427,33 @@ class AttendanceController extends ChangeNotifier {
       message: '날짜가 바뀌어 오늘 출결 정보를 다시 확인해야 합니다.',
       recovery: _AttendanceRecovery.authenticate,
     );
+    _clearDailyStatusStore();
+  }
+
+  Future<void> _saveDailyStatus(DailyAttendanceStatus status) async {
+    final store = statusStore;
+    if (store == null) return;
+    try {
+      await store.save(status);
+    } catch (_) {
+      // Saving display-only cache data must not change server success state.
+    }
+  }
+
+  void _clearDailyStatusStore() {
+    final store = statusStore;
+    if (store == null) return;
+    unawaited(_clearDailyStatusStoreIgnoringErrors(store));
+  }
+
+  Future<void> _clearDailyStatusStoreIgnoringErrors(
+    AttendanceStatusStore store,
+  ) async {
+    try {
+      await store.clear();
+    } catch (_) {
+      // The session is already cleared in memory.
+    }
   }
 
   DateTime _koreaDate(DateTime value) {
