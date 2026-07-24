@@ -9,7 +9,7 @@ class ThemeModeStore {
     final savedName = preferences.getString(_key);
     return ThemeMode.values.firstWhere(
       (mode) => mode.name == savedName,
-      orElse: () => ThemeMode.system,
+      orElse: () => ThemeMode.light,
     );
   }
 

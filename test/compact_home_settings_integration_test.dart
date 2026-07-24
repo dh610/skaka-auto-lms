@@ -128,7 +128,7 @@ void main() {
     schedules.dispose();
   });
 
-  testWidgets('queried success hides generic box but keeps recent feedback', (
+  testWidgets('queried success always shows the last refresh time', (
     tester,
   ) async {
     final schedules = await _schedules();
@@ -157,7 +157,8 @@ void main() {
     links.add(Uri.parse('https://att.skala-ai.com?token=test-token'));
     await tester.pumpAndSettle();
 
-    expect(find.text('방금 업데이트됨'), findsOneWidget);
+    expect(find.text('마지막 갱신: 12:00'), findsOneWidget);
+    expect(find.text('방금 업데이트됨'), findsNothing);
     expect(find.text('인증 및 상태 조회에 성공했습니다.'), findsNothing);
     await links.close();
     schedules.dispose();

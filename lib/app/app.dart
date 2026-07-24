@@ -69,7 +69,7 @@ class _SkalaAttendanceAppState extends State<SkalaAttendanceApp>
   UserProfile? _profile;
   bool _loading = true;
   bool _initialSetupCompleted = false;
-  ThemeMode _themeMode = ThemeMode.system;
+  ThemeMode _themeMode = ThemeMode.light;
 
   @override
   void initState() {
@@ -97,7 +97,7 @@ class _SkalaAttendanceAppState extends State<SkalaAttendanceApp>
     _initialSetupStore = widget.initialSetupStore ?? InitialSetupStore();
     _profileVerifier = widget.profileVerifier ?? SkalaProfileVerifier();
     _scheduleController = ScheduleController(
-      ScheduleStore(),
+      const ScheduleStore.withDefaultSchedules(),
       _notificationScheduler,
       const PlatformAlarmSoundPicker(),
     );
