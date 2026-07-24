@@ -8,6 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:skala_attendance/app/app.dart';
 import 'package:skala_attendance/app/initial_setup_screen.dart';
+import 'package:skala_attendance/features/attendance/data/attendance_completion_store.dart';
 import 'package:skala_attendance/features/attendance/data/attendance_gateway.dart';
 import 'package:skala_attendance/features/attendance/data/attendance_status_store.dart';
 import 'package:skala_attendance/features/attendance/data/callback_link_settings.dart';
@@ -467,6 +468,138 @@ void main() {
   });
 
   testWidgets(
+    'browser cancel unlocks after grace and a late callback keeps the action intent',
+    (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      const profile = UserProfile(
+        name: '윤동현',
+        region: CampusRegion.pangyo5f,
+        classNumber: 8,
+      );
+      final schedules = ScheduleController(ScheduleStore());
+      await schedules.load();
+      final links = StreamController<Uri>();
+      final gateway = _WidgetTestAttendanceGateway(
+        snapshot: const AttendanceSnapshot(
+          networkAllowed: true,
+          checkInTime: '09:00',
+        ),
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: AttendanceScreen(
+            profile: profile,
+            scheduleController: schedules,
+            notificationScheduler: _NoOpNotificationScheduler(),
+            onEditProfile: () async {},
+            gateway: gateway,
+            appLinkStream: links.stream,
+            isAndroid: true,
+            callbackLinkSettings: _FakeCallbackLinkSettings(enabled: true),
+            now: () => DateTime.utc(2026, 7, 24, 3),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.widgetWithText(FilledButton, '외출'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, '외출'));
+      await tester.pump();
+      await tester.pump();
+
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+      await tester.pump();
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pump(const Duration(seconds: 3));
+      await tester.pump();
+
+      expect(
+        tester
+            .widget<IconButton>(
+              find
+                  .ancestor(
+                    of: find.byTooltip('출결 상태 새로고침'),
+                    matching: find.byType(IconButton),
+                  )
+                  .first,
+            )
+            .onPressed,
+        isNotNull,
+      );
+      expect(find.text('Google 인증 다시 시도'), findsOneWidget);
+
+      links.add(Uri.parse('https://att.skala-ai.com?token=test-token'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('외출 처리'), findsOneWidget);
+      expect(gateway.authenticationCallCount, 1);
+      expect(gateway.recordedAction, isNull);
+      await tester.tap(find.text('취소'));
+      await tester.pumpAndSettle();
+
+      await links.close();
+      schedules.dispose();
+    },
+  );
+
+  testWidgets('callback inside browser grace cancels timeout handling', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    const profile = UserProfile(
+      name: '윤동현',
+      region: CampusRegion.pangyo5f,
+      classNumber: 8,
+    );
+    final schedules = ScheduleController(ScheduleStore());
+    await schedules.load();
+    final links = StreamController<Uri>();
+    final gateway = _WidgetTestAttendanceGateway(
+      snapshot: const AttendanceSnapshot(
+        networkAllowed: true,
+        checkInTime: '09:00',
+      ),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: AttendanceScreen(
+          profile: profile,
+          scheduleController: schedules,
+          notificationScheduler: _NoOpNotificationScheduler(),
+          onEditProfile: () async {},
+          gateway: gateway,
+          appLinkStream: links.stream,
+          isAndroid: true,
+          callbackLinkSettings: _FakeCallbackLinkSettings(enabled: true),
+          now: () => DateTime.utc(2026, 7, 24, 3),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('출결 상태 새로고침'));
+    await tester.pump();
+    await tester.pump();
+
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+    await tester.pump();
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pump(const Duration(seconds: 1));
+    links.add(Uri.parse('https://att.skala-ai.com?token=test-token'));
+    await tester.pumpAndSettle();
+    await tester.pump(const Duration(seconds: 2));
+
+    expect(find.text('Google 인증 다시 시도'), findsNothing);
+    expect(find.text('09:00'), findsOneWidget);
+    expect(gateway.authenticationCallCount, 1);
+    expect(gateway.fetchCallCount, 1);
+
+    await links.close();
+    schedules.dispose();
+  });
+
+  testWidgets(
     'tokenless callback unlocks a gated browser launch and ignores its late completion',
     (tester) async {
       SharedPreferences.setMockInitialValues({});
@@ -772,6 +905,146 @@ void main() {
       await tester.tap(find.text('외출 전송'));
       await tester.pumpAndSettle();
       expect(gateway.recordedAction, AttendanceAction.leave);
+
+      await links.close();
+      schedules.dispose();
+    },
+  );
+
+  testWidgets(
+    'expired verification reauthenticates and reconciles without resending',
+    (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      const profile = UserProfile(
+        name: '윤동현',
+        region: CampusRegion.pangyo5f,
+        classNumber: 8,
+      );
+      final schedules = ScheduleController(ScheduleStore());
+      await schedules.load();
+      final links = StreamController<Uri>();
+      final gateway = _WidgetTestAttendanceGateway(
+        snapshot: const AttendanceSnapshot(
+          networkAllowed: true,
+          checkInTime: '09:00',
+        ),
+        snapshotAfterAction: const AttendanceSnapshot(
+          networkAllowed: true,
+          checkInTime: '09:00',
+          earlyLeaveTime: '12:00',
+        ),
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: AttendanceScreen(
+            profile: profile,
+            scheduleController: schedules,
+            notificationScheduler: _NoOpNotificationScheduler(),
+            onEditProfile: () async {},
+            gateway: gateway,
+            appLinkStream: links.stream,
+            isAndroid: true,
+            callbackLinkSettings: _FakeCallbackLinkSettings(enabled: true),
+            now: () => DateTime.utc(2026, 7, 24, 3),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.widgetWithText(FilledButton, '외출'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, '외출'));
+      await tester.pump();
+      links.add(Uri.parse('https://att.skala-ai.com?token=test-token'));
+      await tester.pumpAndSettle();
+
+      gateway.fetchError = const AttendanceAuthenticationExpiredException();
+      await tester.tap(find.text('외출 전송'));
+      await tester.pumpAndSettle();
+
+      expect(gateway.recordCallCount, 1);
+      expect(find.text('Google 인증 다시 시도'), findsOneWidget);
+
+      gateway.fetchError = null;
+      await tester.ensureVisible(find.widgetWithText(FilledButton, '외출'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, '외출'));
+      await tester.pump();
+      expect(gateway.authenticationCallCount, 2);
+      links.add(Uri.parse('https://att.skala-ai.com?token=new-token'));
+      await tester.pumpAndSettle();
+
+      expect(gateway.recordCallCount, 1);
+      expect(find.text('외출 처리'), findsNothing);
+      expect(find.text('12:00'), findsOneWidget);
+
+      await links.close();
+      schedules.dispose();
+    },
+  );
+
+  testWidgets(
+    'uncertain action tap refreshes status without reopening send confirmation',
+    (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      const profile = UserProfile(
+        name: '윤동현',
+        region: CampusRegion.pangyo5f,
+        classNumber: 8,
+      );
+      final schedules = ScheduleController(ScheduleStore());
+      await schedules.load();
+      final links = StreamController<Uri>();
+      final gateway =
+          _WidgetTestAttendanceGateway(
+              snapshot: const AttendanceSnapshot(
+                networkAllowed: true,
+                checkInTime: '09:00',
+              ),
+              snapshotAfterAction: const AttendanceSnapshot(
+                networkAllowed: true,
+                checkInTime: '09:00',
+                earlyLeaveTime: '12:00',
+              ),
+            )
+            ..recordError = TimeoutException('timed out')
+            ..reflectRecordedAction = false;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: AttendanceScreen(
+            profile: profile,
+            scheduleController: schedules,
+            notificationScheduler: _NoOpNotificationScheduler(),
+            onEditProfile: () async {},
+            gateway: gateway,
+            appLinkStream: links.stream,
+            isAndroid: true,
+            callbackLinkSettings: _FakeCallbackLinkSettings(enabled: true),
+            now: () => DateTime.utc(2026, 7, 24, 3),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.widgetWithText(FilledButton, '외출'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, '외출'));
+      await tester.pump();
+      links.add(Uri.parse('https://att.skala-ai.com?token=test-token'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('외출 전송'));
+      await tester.pumpAndSettle();
+
+      final fetchesBeforeSecondTap = gateway.fetchCallCount;
+      expect(gateway.recordCallCount, 1);
+      await tester.ensureVisible(find.widgetWithText(FilledButton, '외출'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, '외출'));
+      await tester.pumpAndSettle();
+
+      expect(gateway.recordCallCount, 1);
+      expect(gateway.fetchCallCount, fetchesBeforeSecondTap + 1);
+      expect(find.text('외출 처리'), findsNothing);
 
       await links.close();
       schedules.dispose();
@@ -2218,6 +2491,62 @@ void main() {
     schedules.dispose();
   });
 
+  testWidgets(
+    'canceling app link settings does not complete a scheduled occurrence',
+    (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      const profile = UserProfile(
+        name: '윤동현',
+        region: CampusRegion.pangyo5f,
+        classNumber: 8,
+      );
+      final now = DateTime.now();
+      final scheduledAt = now.subtract(const Duration(minutes: 1));
+      final schedule = AttendanceSchedule(
+        id: 'cancelled-settings-leave',
+        action: AttendanceAction.leave,
+        hour: scheduledAt.hour,
+        minute: scheduledAt.minute,
+        weekdays: {scheduledAt.weekday},
+        enabled: true,
+      );
+      final schedules = ScheduleController(ScheduleStore());
+      await schedules.load();
+      await schedules.saveSchedule(schedule);
+      final notifications = _NoOpNotificationScheduler();
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: AttendanceScreen(
+            profile: profile,
+            scheduleController: schedules,
+            notificationScheduler: notifications,
+            onEditProfile: () async {},
+            gateway: _WidgetTestAttendanceGateway(),
+            appLinkStream: const Stream.empty(),
+            isAndroid: true,
+            callbackLinkSettings: _FakeCallbackLinkSettings(enabled: false),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      notifications.emit(
+        '{"scheduleId":"${schedule.id}","action":"leave",'
+        '"scheduledAt":"${scheduledAt.toIso8601String()}"}',
+      );
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.text('앱 복귀 설정이 필요합니다'), findsOneWidget);
+      await tester.tap(find.text('취소'));
+      await tester.pumpAndSettle();
+
+      final completed = await AttendanceCompletionStore().loadFor(now);
+      expect(completed, isEmpty);
+      schedules.dispose();
+    },
+  );
+
   testWidgets('profile change invalidates a gated settings continuation', (
     tester,
   ) async {
@@ -2691,8 +3020,12 @@ class _WidgetTestAttendanceGateway implements AttendanceGateway {
   final Completer<void>? authenticationGate;
   UserProfile? authenticationProfile;
   AttendanceAction? recordedAction;
+  Object? fetchError;
+  Object? recordError;
+  bool reflectRecordedAction = true;
   int authenticationCallCount = 0;
   int fetchCallCount = 0;
+  int recordCallCount = 0;
 
   @override
   Future<void> startBrowserAuthentication(UserProfile profile) async {
@@ -2705,13 +3038,16 @@ class _WidgetTestAttendanceGateway implements AttendanceGateway {
   Future<AttendanceSnapshot> fetchToday(String token) async {
     fetchCallCount++;
     await fetchGate?.future;
+    if (fetchError case final error?) throw error;
     return snapshot;
   }
 
   @override
   Future<void> recordAction(String token, AttendanceAction action) async {
+    recordCallCount++;
     recordedAction = action;
-    snapshot = snapshotAfterAction ?? snapshot;
+    if (reflectRecordedAction) snapshot = snapshotAfterAction ?? snapshot;
+    if (recordError case final error?) throw error;
   }
 
   @override

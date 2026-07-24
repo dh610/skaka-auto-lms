@@ -229,8 +229,12 @@ class _AttendanceScreenState extends State<AttendanceScreen>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      _invalidateExpiredDailyState();
-      unawaited(_resumeAuthenticationAfterSettings());
+      if (_invalidateExpiredDailyState()) return;
+      if (_pendingSettingsContinuation != null) {
+        unawaited(_resumeAuthenticationAfterSettings());
+      } else {
+        _controller.startAuthenticationCallbackGrace();
+      }
     }
   }
 

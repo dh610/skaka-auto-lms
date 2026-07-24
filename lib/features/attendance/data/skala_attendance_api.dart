@@ -151,6 +151,9 @@ class SkalaAttendanceApi implements AttendanceGateway {
           body: jsonEncode({'eventType': action.eventType}),
         )
         .timeout(const Duration(seconds: 10));
+    if (response.statusCode == 401 || response.statusCode == 403) {
+      throw const AttendanceAuthenticationExpiredException();
+    }
     if (response.statusCode < 200 || response.statusCode >= 300) {
       final error = _serverError(response);
       if (_isDefinitiveActionRejection(response.statusCode)) {

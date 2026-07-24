@@ -47,6 +47,7 @@ class AttendanceController extends ChangeNotifier {
   AttendanceAction? _readyAction;
   int _readyActionRevision = 0;
   bool _awaitingAuthenticationCallback = false;
+  Timer? _authenticationCallbackGraceTimer;
   DateTime? _snapshotKoreaDate;
   late DailyAttendanceStatus _dailyStatus;
   int _sessionRevision = 0;
@@ -150,6 +151,7 @@ class AttendanceController extends ChangeNotifier {
   }
 
   void updateProfile(UserProfile profile) {
+    _cancelAuthenticationCallbackGrace();
     _sessionRevision++;
     _profile = profile;
     _token = null;
@@ -178,12 +180,12 @@ class AttendanceController extends ChangeNotifier {
   }) async {
     invalidateExpiredDailyState();
     if (_awaitingAuthenticationCallback) return;
+    _cancelAuthenticationCallbackGrace();
     _pendingRequest ??= const _StatusRefreshRequest();
     final sessionRevision = ++_sessionRevision;
     final operationDate = _koreaDate(_now());
     _token = null;
     _lastCompletedAction = null;
-    _pendingActionConfirmation = null;
     _readyAction = null;
     _snapshotKoreaDate = null;
     _setState(
@@ -195,8 +197,28 @@ class AttendanceController extends ChangeNotifier {
     try {
       await _gateway.startBrowserAuthentication(_profile);
       if (!_operationIsCurrent(sessionRevision, operationDate)) return;
-      if (scheduleId != null && scheduledAt != null) {
-        await _rememberScheduledOccurrence(scheduleId, scheduledAt);
+      final pendingRequest = _pendingRequest;
+      final pendingOccurrence = switch (pendingRequest) {
+        _ActionRequest(
+          scheduleId: final scheduleId?,
+          scheduledAt: final scheduledAt?,
+        ) =>
+          (scheduleId, scheduledAt),
+        _ => null,
+      };
+      final legacyOccurrence = switch ((scheduleId, scheduledAt)) {
+        (final scheduleId?, final scheduledAt?) => (scheduleId, scheduledAt),
+        _ => null,
+      };
+      final occurrence = pendingOccurrence ?? legacyOccurrence;
+      if (occurrence case (
+        final occurrenceScheduleId,
+        final occurrenceScheduledAt,
+      )) {
+        await _rememberScheduledOccurrence(
+          occurrenceScheduleId,
+          occurrenceScheduledAt,
+        );
         if (!_operationIsCurrent(sessionRevision, operationDate)) return;
       }
       _awaitingAuthenticationCallback = _isAndroid;
@@ -228,14 +250,13 @@ class AttendanceController extends ChangeNotifier {
     DateTime? scheduledAt,
   }) {
     return _request(
-      _ActionRequest(action),
-      scheduleId: scheduleId,
-      scheduledAt: scheduledAt,
+      _ActionRequest(action, scheduleId: scheduleId, scheduledAt: scheduledAt),
     );
   }
 
   void cancelPendingRequest() {
     if (_pendingRequest == null && !_awaitingAuthenticationCallback) return;
+    _cancelAuthenticationCallbackGrace();
     _sessionRevision++;
     _pendingRequest = null;
     _awaitingAuthenticationCallback = false;
@@ -247,26 +268,23 @@ class AttendanceController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<AttendanceRequestResult> _request(
-    _AttendanceRequest request, {
-    String? scheduleId,
-    DateTime? scheduledAt,
-  }) async {
+  Future<AttendanceRequestResult> _request(_AttendanceRequest request) async {
     invalidateExpiredDailyState();
     if (_awaitingAuthenticationCallback) {
       return AttendanceRequestResult.completed;
     }
+    if (!busy &&
+        _pendingRequest != null &&
+        _recovery == _AttendanceRecovery.authenticate) {
+      return AttendanceRequestResult.authenticationRequired;
+    }
     final sessionRevision = ++_sessionRevision;
     final operationDate = _koreaDate(_now());
-    _pendingRequest = request;
+    final effectiveRequest = _pendingActionConfirmation == null
+        ? request
+        : const _StatusRefreshRequest();
+    _pendingRequest = effectiveRequest;
     _readyAction = null;
-
-    if (scheduleId != null && scheduledAt != null) {
-      await _rememberScheduledOccurrence(scheduleId, scheduledAt);
-      if (!_operationIsCurrent(sessionRevision, operationDate)) {
-        return AttendanceRequestResult.completed;
-      }
-    }
 
     final token = _token;
     if (token == null) {
@@ -285,6 +303,16 @@ class AttendanceController extends ChangeNotifier {
       return AttendanceRequestResult.authenticationRequired;
     }
 
+    if (effectiveRequest case _ActionRequest(
+      scheduleId: final scheduleId?,
+      scheduledAt: final scheduledAt?,
+    )) {
+      await _rememberScheduledOccurrence(scheduleId, scheduledAt);
+      if (!_operationIsCurrent(sessionRevision, operationDate, token: token)) {
+        return AttendanceRequestResult.completed;
+      }
+    }
+
     _setState(busy: true, message: '현재 출결 상태 확인 중…', clearRecovery: true);
     try {
       final snapshot = await _gateway.fetchToday(token);
@@ -293,7 +321,7 @@ class AttendanceController extends ChangeNotifier {
       }
       await _publishRequestedSnapshot(
         snapshot,
-        request: request,
+        request: effectiveRequest,
         koreaDate: operationDate,
         refreshMessage: '현재 출결 상태를 다시 확인했습니다.',
       );
@@ -336,6 +364,7 @@ class AttendanceController extends ChangeNotifier {
         uri.host != 'att.skala-ai.com') {
       return;
     }
+    _cancelAuthenticationCallbackGrace();
     _awaitingAuthenticationCallback = false;
     final token = uri.queryParameters['token'];
     if (token == null || token.isEmpty) {
@@ -349,12 +378,15 @@ class AttendanceController extends ChangeNotifier {
       return;
     }
     invalidateExpiredDailyState();
-    _pendingRequest ??= const _StatusRefreshRequest();
+    if (_pendingActionConfirmation != null) {
+      _pendingRequest = const _StatusRefreshRequest();
+    } else {
+      _pendingRequest ??= const _StatusRefreshRequest();
+    }
     final sessionRevision = ++_sessionRevision;
     final operationDate = _koreaDate(_now());
     _token = null;
     _lastCompletedAction = null;
-    _pendingActionConfirmation = null;
     _readyAction = null;
     _snapshotKoreaDate = null;
     _setState(busy: true, clearSnapshot: true, message: '인증 토큰 확인 및 상태 조회 중…');
@@ -417,8 +449,10 @@ class AttendanceController extends ChangeNotifier {
     }
     _setState(busy: true, message: '${action.label} 요청 전송 중…');
     _pendingActionConfirmation = action;
+    var actionAccepted = false;
     try {
       await _gateway.recordAction(token, action);
+      actionAccepted = true;
       if (!_operationIsCurrent(sessionRevision, operationDate, token: token)) {
         return;
       }
@@ -434,6 +468,22 @@ class AttendanceController extends ChangeNotifier {
         message: '${action.label} 처리가 완료되었습니다.',
         completedAction: action,
         koreaDate: operationDate,
+      );
+    } on AttendanceAuthenticationExpiredException {
+      if (!_operationIsCurrent(sessionRevision, operationDate, token: token)) {
+        return;
+      }
+      _token = null;
+      if (!actionAccepted) _pendingActionConfirmation = null;
+      _pendingRequest = const _StatusRefreshRequest();
+      _setState(
+        message: actionAccepted
+            ? '${action.label} 요청은 전송되었지만 인증이 만료되어 처리 결과를 확인하지 못했습니다. '
+                  '재인증 후 현재 출결 상태만 확인합니다.'
+            : '인증이 만료되어 ${action.label} 요청을 전송하지 못했습니다. '
+                  '재인증 후 현재 출결 상태를 확인해주세요.',
+        hasError: true,
+        recovery: _AttendanceRecovery.authenticate,
       );
     } catch (error) {
       if (!_operationIsCurrent(sessionRevision, operationDate, token: token)) {
@@ -467,6 +517,7 @@ class AttendanceController extends ChangeNotifier {
   }
 
   void reportLinkError(Object error) {
+    _cancelAuthenticationCallbackGrace();
     _sessionRevision++;
     _awaitingAuthenticationCallback = false;
     _setState(
@@ -503,17 +554,21 @@ class AttendanceController extends ChangeNotifier {
       if (!_operationIsCurrent(sessionRevision, operationDate, token: token)) {
         return;
       }
-      final pendingAction = _pendingActionConfirmation;
-      if (pendingAction != null && !snapshot.reflects(pendingAction)) {
-        throw StateError('서버 상태에서 ${pendingAction.label} 반영을 확인하지 못했습니다.');
-      }
-      await _publishSnapshot(
+      await _publishReconciledSnapshot(
         snapshot,
-        message: pendingAction == null
-            ? '현재 출결 상태를 다시 확인했습니다.'
-            : '${pendingAction.label} 처리가 완료되었습니다.',
-        completedAction: pendingAction,
         koreaDate: operationDate,
+        refreshMessage: '현재 출결 상태를 다시 확인했습니다.',
+      );
+    } on AttendanceAuthenticationExpiredException {
+      if (!_operationIsCurrent(sessionRevision, operationDate, token: token)) {
+        return;
+      }
+      _token = null;
+      _pendingRequest = const _StatusRefreshRequest();
+      _setState(
+        message: '인증이 만료되었습니다. 재인증 후 현재 출결 상태만 다시 확인합니다.',
+        hasError: true,
+        recovery: _AttendanceRecovery.authenticate,
       );
     } catch (error) {
       if (!_operationIsCurrent(sessionRevision, operationDate, token: token)) {
@@ -561,10 +616,10 @@ class AttendanceController extends ChangeNotifier {
     _pendingRequest = null;
     switch (request) {
       case _StatusRefreshRequest():
-        await _publishSnapshot(
+        await _publishReconciledSnapshot(
           snapshot,
-          message: refreshMessage,
           koreaDate: koreaDate,
+          refreshMessage: refreshMessage,
         );
       case _ActionRequest(:final action):
         final available = snapshot.availableActions.contains(action);
@@ -580,6 +635,43 @@ class AttendanceController extends ChangeNotifier {
           koreaDate: koreaDate,
         );
     }
+  }
+
+  Future<void> _publishReconciledSnapshot(
+    AttendanceSnapshot snapshot, {
+    required DateTime koreaDate,
+    required String refreshMessage,
+  }) async {
+    final pendingAction = _pendingActionConfirmation;
+    if (pendingAction == null) {
+      await _publishSnapshot(
+        snapshot,
+        message: refreshMessage,
+        koreaDate: koreaDate,
+      );
+      return;
+    }
+    if (snapshot.reflects(pendingAction)) {
+      await _publishSnapshot(
+        snapshot,
+        message: '${pendingAction.label} 처리가 완료되었습니다.',
+        completedAction: pendingAction,
+        koreaDate: koreaDate,
+      );
+      return;
+    }
+    await _publishSnapshot(
+      snapshot,
+      message: '${pendingAction.label} 처리 결과를 아직 서버 상태에서 확인하지 못했습니다.',
+      koreaDate: koreaDate,
+    );
+    _setState(
+      message:
+          '${pendingAction.label} 처리 결과를 아직 확인하지 못했습니다. '
+          '중복 전송하지 말고 현재 출결 상태를 다시 확인해주세요.',
+      hasError: true,
+      recovery: _AttendanceRecovery.refresh,
+    );
   }
 
   bool invalidateExpiredDailyState({VoidCallback? beforeInvalidation}) {
@@ -608,6 +700,7 @@ class AttendanceController extends ChangeNotifier {
   }
 
   void _expireDailySession() {
+    _cancelAuthenticationCallbackGrace();
     _sessionRevision++;
     _token = null;
     _snapshotKoreaDate = null;
@@ -721,8 +814,32 @@ class AttendanceController extends ChangeNotifier {
     notifyListeners();
   }
 
+  void startAuthenticationCallbackGrace({
+    Duration duration = const Duration(seconds: 2),
+  }) {
+    if (!_awaitingAuthenticationCallback) return;
+    _cancelAuthenticationCallbackGrace();
+    _authenticationCallbackGraceTimer = Timer(duration, () {
+      _authenticationCallbackGraceTimer = null;
+      if (!_awaitingAuthenticationCallback) return;
+      _awaitingAuthenticationCallback = false;
+      _setState(
+        busy: false,
+        message: 'Google 인증이 취소되었거나 완료되지 않았습니다. 다시 시도해주세요.',
+        hasError: true,
+        recovery: _AttendanceRecovery.authenticate,
+      );
+    });
+  }
+
+  void _cancelAuthenticationCallbackGrace() {
+    _authenticationCallbackGraceTimer?.cancel();
+    _authenticationCallbackGraceTimer = null;
+  }
+
   @override
   void dispose() {
+    _cancelAuthenticationCallbackGrace();
     _sessionRevision++;
     _awaitingAuthenticationCallback = false;
     _gateway.close();
@@ -741,7 +858,9 @@ final class _StatusRefreshRequest extends _AttendanceRequest {
 }
 
 final class _ActionRequest extends _AttendanceRequest {
-  const _ActionRequest(this.action);
+  const _ActionRequest(this.action, {this.scheduleId, this.scheduledAt});
 
   final AttendanceAction action;
+  final String? scheduleId;
+  final DateTime? scheduledAt;
 }
