@@ -334,7 +334,9 @@ void main() {
     expect(find.text('마지막 갱신: 12:00'), findsOneWidget);
     expect(find.text('방금 업데이트됨'), findsNothing);
     expect(find.textContaining('네트워크 허용:'), findsNothing);
-    expect(find.text('현재 네트워크에서는 출결 동작을 전송할 수 없습니다.'), findsOneWidget);
+    expect(find.text('SKALA Wi-Fi에 연결 후 다시 시도해주세요.'), findsOneWidget);
+    expect(find.text('현재 가능한 출결 동작이 없습니다.'), findsNothing);
+    expect(find.text('가능한 동작'), findsNothing);
     expect(find.textContaining('2026-07-24T'), findsNothing);
     expect(gateway.recordedAction, isNull);
     expect(find.textContaining('오늘 출결 ·'), findsOneWidget);
