@@ -13,6 +13,8 @@ import '../domain/daily_attendance_status.dart';
 
 enum AttendanceRequestResult { completed, authenticationRequired }
 
+enum AttendanceMessageKind { informational, warning, refreshRequired, error }
+
 class AttendanceController extends ChangeNotifier {
   AttendanceController(
     this._profile,
@@ -35,6 +37,7 @@ class AttendanceController extends ChangeNotifier {
 
   bool _busy = false;
   String _message = '우측 상단 새로고침 버튼을 눌러 Google 인증 후 출결 정보를 갱신하세요.';
+  AttendanceMessageKind _messageKind = AttendanceMessageKind.informational;
   AttendanceSnapshot? _snapshot;
   String? _token;
   _AttendanceRecovery? _recovery;
@@ -57,6 +60,7 @@ class AttendanceController extends ChangeNotifier {
 
   bool get busy => _busy;
   String get message => _message;
+  AttendanceMessageKind get messageKind => _messageKind;
   AttendanceSnapshot? get snapshot => _snapshot;
   DailyAttendanceStatus get dailyStatus => _dailyStatus;
   bool get authenticated => _token != null;
@@ -353,6 +357,7 @@ class AttendanceController extends ChangeNotifier {
     _setState(
       busy: false,
       message: 'Google 인증이 필요합니다.',
+      messageKind: AttendanceMessageKind.warning,
       hasError: false,
       recovery: _AttendanceRecovery.authenticate,
     );
@@ -430,7 +435,10 @@ class AttendanceController extends ChangeNotifier {
     if (_readyAction != action ||
         readyActionRevision == null ||
         readyActionRevision != _readyActionRevision) {
-      _setState(message: '출결 상태가 변경되었습니다. 최신 상태를 다시 확인해주세요.');
+      _setState(
+        message: '출결 상태가 변경되었습니다. 최신 상태를 다시 확인해주세요.',
+        messageKind: AttendanceMessageKind.refreshRequired,
+      );
       return;
     }
     _readyAction = null;
@@ -440,11 +448,17 @@ class AttendanceController extends ChangeNotifier {
     final token = _token;
     final current = _snapshot;
     if (token == null || current == null) {
-      _setState(message: 'Google 인증이 필요합니다.');
+      _setState(
+        message: 'Google 인증이 필요합니다.',
+        messageKind: AttendanceMessageKind.warning,
+      );
       return;
     }
     if (!current.availableActions.contains(action)) {
-      _setState(message: '현재 출결 상태에서는 ${action.label}할 수 없습니다.');
+      _setState(
+        message: '현재 출결 상태에서는 ${action.label}할 수 없습니다.',
+        messageKind: AttendanceMessageKind.warning,
+      );
       return;
     }
     _setState(busy: true, message: '${action.label} 요청 전송 중…');
@@ -509,11 +523,17 @@ class AttendanceController extends ChangeNotifier {
   }
 
   void reportUnavailableScheduledAction(AttendanceAction action) {
-    _setState(message: '예약된 ${action.label} 동작은 현재 출결 상태에서 실행할 수 없습니다.');
+    _setState(
+      message: '예약된 ${action.label} 동작은 현재 출결 상태에서 실행할 수 없습니다.',
+      messageKind: AttendanceMessageKind.warning,
+    );
   }
 
   void reportStaleScheduledOccurrence() {
-    _setState(message: '변경되거나 삭제된 일정의 알림이라 실행하지 않았습니다.');
+    _setState(
+      message: '변경되거나 삭제된 일정의 알림이라 실행하지 않았습니다.',
+      messageKind: AttendanceMessageKind.warning,
+    );
   }
 
   void reportLinkError(Object error) {
@@ -587,6 +607,7 @@ class AttendanceController extends ChangeNotifier {
   Future<void> _publishSnapshot(
     AttendanceSnapshot snapshot, {
     required String message,
+    AttendanceMessageKind messageKind = AttendanceMessageKind.informational,
     AttendanceAction? completedAction,
     DateTime? koreaDate,
   }) async {
@@ -603,7 +624,12 @@ class AttendanceController extends ChangeNotifier {
       _lastCompletedAction = completedAction;
       _pendingActionConfirmation = null;
     }
-    _setState(snapshot: snapshot, message: message, clearRecovery: true);
+    _setState(
+      snapshot: snapshot,
+      message: message,
+      messageKind: messageKind,
+      clearRecovery: true,
+    );
     await _saveDailyStatus(_dailyStatus);
   }
 
@@ -632,6 +658,9 @@ class AttendanceController extends ChangeNotifier {
           message: available
               ? '최신 출결 상태를 확인했습니다. ${action.label} 동작을 확인해주세요.'
               : '현재 출결 상태에서는 ${action.label}할 수 없습니다.',
+          messageKind: available
+              ? AttendanceMessageKind.informational
+              : AttendanceMessageKind.warning,
           koreaDate: koreaDate,
         );
     }
@@ -764,6 +793,7 @@ class AttendanceController extends ChangeNotifier {
   void _setState({
     bool? busy,
     String? message,
+    AttendanceMessageKind? messageKind,
     AttendanceSnapshot? snapshot,
     bool clearSnapshot = false,
     bool? hasError,
@@ -771,7 +801,14 @@ class AttendanceController extends ChangeNotifier {
     bool clearRecovery = false,
   }) {
     if (busy != null) _busy = busy;
-    if (message != null) _message = message;
+    if (message != null) {
+      _message = message;
+      _messageKind =
+          messageKind ??
+          (hasError == true
+              ? AttendanceMessageKind.error
+              : AttendanceMessageKind.informational);
+    }
     if (clearSnapshot) _snapshot = null;
     if (snapshot != null) _snapshot = snapshot;
     if (hasError != null) _hasError = hasError;

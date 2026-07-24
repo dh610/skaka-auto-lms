@@ -750,6 +750,7 @@ void main() {
       expect(controller.snapshot?.checkOutTime, '18:00');
       expect(controller.readyAction, isNull);
       expect(controller.message, contains('현재 출결 상태에서는'));
+      expect(controller.messageKind, AttendanceMessageKind.warning);
       controller.dispose();
     },
   );

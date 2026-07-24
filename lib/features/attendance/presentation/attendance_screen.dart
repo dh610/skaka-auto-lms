@@ -561,7 +561,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                 showRecentlyUpdated: _showRecentlyUpdated,
                 highlightedAction: _highlightedAction,
                 message: _controller.message,
-                hasError: _controller.hasError,
+                messageKind: _controller.messageKind,
                 onRefresh: _refreshStatus,
                 onAction: _beginAction,
               ),
@@ -927,7 +927,7 @@ class _StatusCard extends StatelessWidget {
     required this.showRecentlyUpdated,
     required this.highlightedAction,
     required this.message,
-    required this.hasError,
+    required this.messageKind,
     required this.onRefresh,
     required this.onAction,
   });
@@ -939,7 +939,7 @@ class _StatusCard extends StatelessWidget {
   final bool showRecentlyUpdated;
   final AttendanceAction? highlightedAction;
   final String message;
-  final bool hasError;
+  final AttendanceMessageKind messageKind;
   final Future<void> Function() onRefresh;
   final Future<void> Function(AttendanceAction action) onAction;
 
@@ -949,10 +949,16 @@ class _StatusCard extends StatelessWidget {
     final availableActions = status.queried
         ? status.sequenceAvailableActions
         : AttendanceAction.values.toSet();
-    final showMessage = !status.queried || hasError;
-    final displayedMessage = hasError && !message.contains('새로고침 버튼')
+    final showMessage =
+        !status.queried || messageKind != AttendanceMessageKind.informational;
+    final needsRefreshGuidance =
+        messageKind == AttendanceMessageKind.error ||
+        messageKind == AttendanceMessageKind.refreshRequired;
+    final displayedMessage =
+        needsRefreshGuidance && !message.contains('새로고침 버튼')
         ? '$message 새로고침 버튼을 눌러 다시 확인해 주세요.'
         : message;
+    final isError = messageKind == AttendanceMessageKind.error;
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(14),
@@ -1002,7 +1008,7 @@ class _StatusCard extends StatelessWidget {
                 width: double.infinity,
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: hasError
+                  color: isError
                       ? colors.errorContainer.withValues(alpha: 0.65)
                       : colors.surfaceContainerHighest.withValues(alpha: 0.55),
                   borderRadius: BorderRadius.circular(12),
@@ -1010,7 +1016,7 @@ class _StatusCard extends StatelessWidget {
                 child: Text(
                   displayedMessage,
                   style: TextStyle(
-                    color: hasError
+                    color: isError
                         ? colors.onErrorContainer
                         : colors.onSurfaceVariant,
                   ),

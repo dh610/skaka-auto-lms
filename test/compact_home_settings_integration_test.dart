@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:skala_attendance/app/app.dart';
+import 'package:skala_attendance/app/theme_mode_store.dart';
 import 'package:skala_attendance/features/attendance/data/attendance_gateway.dart';
 import 'package:skala_attendance/features/attendance/data/callback_link_settings.dart';
 import 'package:skala_attendance/features/attendance/domain/attendance_snapshot.dart';
@@ -264,6 +265,7 @@ void main() {
       'initialSetup.completed': true,
     });
     final scheduler = _Scheduler();
+    final gateway = _Gateway();
 
     await tester.pumpWidget(
       SkalaAttendanceApp(
@@ -272,6 +274,7 @@ void main() {
         callbackLinkSettings: _CallbackSettings(),
         appVersionProvider: _VersionProvider(),
         profileVerifier: _Verifier(),
+        attendanceGateway: gateway,
         isAndroid: true,
       ),
     );
@@ -288,10 +291,79 @@ void main() {
     await tester.pageBack();
     await tester.pumpAndSettle();
     expect(find.byTooltip('설정'), findsOneWidget);
+    await tester.tap(find.widgetWithText(FilledButton, '입실'));
+    await tester.pump();
+    await tester.pump();
+    expect(gateway.authenticationProfile?.name, '김스칼라');
+
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+    await tester.pump();
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pump(const Duration(seconds: 3));
     await tester.tap(find.byTooltip('설정'));
     await tester.pumpAndSettle();
     expect(find.text('김스칼라'), findsOneWidget);
   });
+
+  testWidgets(
+    'app shows the second rapid theme before ordered persistence completes',
+    (tester) async {
+      SharedPreferences.setMockInitialValues({
+        'profile.name': '윤동현',
+        'profile.region': 'P2',
+        'profile.classNumber': 8,
+        'initialSetup.completed': true,
+      });
+      final scheduler = _Scheduler();
+      final themeStore = _GatedThemeModeStore();
+
+      await tester.pumpWidget(
+        SkalaAttendanceApp(
+          notificationScheduler: scheduler,
+          notificationPermissionSettings: scheduler,
+          callbackLinkSettings: _CallbackSettings(),
+          appVersionProvider: _VersionProvider(),
+          profileVerifier: _Verifier(),
+          themeModeStore: themeStore,
+          isAndroid: true,
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('설정'));
+      await tester.pumpAndSettle();
+
+      Finder themeTile() =>
+          find.ancestor(of: find.text('테마'), matching: find.byType(ListTile));
+
+      await tester.tap(themeTile());
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('다크').last);
+      await tester.pumpAndSettle();
+      expect(
+        tester.widget<MaterialApp>(find.byType(MaterialApp)).themeMode,
+        ThemeMode.dark,
+      );
+      expect(themeStore.saveCalls, [ThemeMode.dark]);
+
+      await tester.tap(themeTile());
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('라이트').last);
+      await tester.pumpAndSettle();
+      expect(
+        tester.widget<MaterialApp>(find.byType(MaterialApp)).themeMode,
+        ThemeMode.light,
+      );
+      expect(themeStore.saveCalls, [ThemeMode.dark]);
+
+      themeStore.darkSave.complete();
+      await tester.pump();
+      await tester.pump();
+      expect(themeStore.saveCalls, [ThemeMode.dark, ThemeMode.light]);
+
+      themeStore.lightSave.complete();
+      await tester.pumpAndSettle();
+    },
+  );
 }
 
 Future<ScheduleController> _schedules() async {
@@ -352,6 +424,7 @@ class _Gateway implements AttendanceGateway {
   _Gateway({this.fetchError});
 
   final Object? fetchError;
+  UserProfile? authenticationProfile;
 
   @override
   void close() {}
@@ -366,7 +439,9 @@ class _Gateway implements AttendanceGateway {
   Future<void> recordAction(String token, AttendanceAction action) async {}
 
   @override
-  Future<void> startBrowserAuthentication(UserProfile profile) async {}
+  Future<void> startBrowserAuthentication(UserProfile profile) async {
+    authenticationProfile = profile;
+  }
 
   @override
   void validateAttendanceToken(String token, UserProfile profile) {}
@@ -384,4 +459,23 @@ class _Verifier implements ProfileVerifier {
 
   @override
   Future<void> verify(UserProfile profile) async {}
+}
+
+class _GatedThemeModeStore extends ThemeModeStore {
+  final darkSave = Completer<void>();
+  final lightSave = Completer<void>();
+  final saveCalls = <ThemeMode>[];
+
+  @override
+  Future<ThemeMode> load() async => ThemeMode.system;
+
+  @override
+  Future<void> save(ThemeMode mode) {
+    saveCalls.add(mode);
+    return switch (mode) {
+      ThemeMode.dark => darkSave.future,
+      ThemeMode.light => lightSave.future,
+      ThemeMode.system => Future<void>.value(),
+    };
+  }
 }

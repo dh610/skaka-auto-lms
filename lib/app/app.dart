@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 
+import '../features/attendance/data/attendance_gateway.dart';
 import '../features/attendance/presentation/attendance_screen.dart';
 import '../features/attendance/data/callback_link_settings.dart';
 import '../features/profile/data/profile_store.dart';
@@ -29,6 +30,8 @@ class SkalaAttendanceApp extends StatefulWidget {
     this.notificationPermissionSettings,
     this.callbackLinkSettings,
     this.appVersionProvider,
+    this.attendanceGateway,
+    this.themeModeStore,
     this.initialSetupStore,
     this.profileVerifier,
     bool? isAndroid,
@@ -38,6 +41,8 @@ class SkalaAttendanceApp extends StatefulWidget {
   final NotificationPermissionSettings? notificationPermissionSettings;
   final CallbackLinkSettings? callbackLinkSettings;
   final AppVersionProvider? appVersionProvider;
+  final AttendanceGateway? attendanceGateway;
+  final ThemeModeStore? themeModeStore;
   final InitialSetupStore? initialSetupStore;
   final ProfileVerifier? profileVerifier;
   final bool isAndroid;
@@ -50,7 +55,7 @@ class _SkalaAttendanceAppState extends State<SkalaAttendanceApp>
     with WidgetsBindingObserver {
   final _navigatorKey = GlobalKey<NavigatorState>();
   final _profileStore = ProfileStore();
-  final _themeModeStore = ThemeModeStore();
+  late final ThemeModeStore _themeModeStore;
   late final InitialSetupStore _initialSetupStore;
   late final NotificationScheduler _notificationScheduler;
   late final NotificationPermissionSettings _notificationPermissionSettings;
@@ -68,6 +73,7 @@ class _SkalaAttendanceAppState extends State<SkalaAttendanceApp>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _themeModeStore = widget.themeModeStore ?? ThemeModeStore();
     _notificationScheduler =
         widget.notificationScheduler ?? LocalNotificationScheduler();
     _notificationPermissionSettings =
@@ -247,6 +253,7 @@ class _SkalaAttendanceAppState extends State<SkalaAttendanceApp>
               scheduleController: _scheduleController,
               notificationScheduler: _notificationScheduler,
               onOpenSettings: _openSettings,
+              gateway: widget.attendanceGateway,
               callbackLinkSettings: _callbackLinkSettings,
               isAndroid: widget.isAndroid,
             ),

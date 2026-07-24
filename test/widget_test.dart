@@ -2124,7 +2124,13 @@ void main() {
   testWidgets('notification for a deleted schedule does not authenticate', (
     tester,
   ) async {
-    SharedPreferences.setMockInitialValues({});
+    SharedPreferences.setMockInitialValues({
+      AttendanceStatusStore.storageKey: jsonEncode({
+        'date': '2026-07-24',
+        'fetchedAt': '2026-07-24T03:00:00.000Z',
+        'checkInTime': '09:00',
+      }),
+    });
     const profile = UserProfile(
       name: '윤동현',
       region: CampusRegion.pangyo5f,
@@ -2146,14 +2152,16 @@ void main() {
           appLinkStream: const Stream.empty(),
           isAndroid: true,
           callbackLinkSettings: _FakeCallbackLinkSettings(enabled: true),
+          now: () => DateTime.utc(2026, 7, 24, 3),
         ),
       ),
     );
     await tester.pumpAndSettle();
+    expect(find.text('09:00'), findsOneWidget);
 
     notifications.emit(
       '{"scheduleId":"deleted-check-in","action":"checkIn",'
-      '"scheduledAt":"2026-07-23T09:00:00.000"}',
+      '"scheduledAt":"2026-07-24T09:00:00.000"}',
     );
     await tester.pumpAndSettle();
 
