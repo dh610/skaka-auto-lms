@@ -9,6 +9,32 @@ import 'package:skala_attendance/features/schedule/domain/training_calendar.dart
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
+  test(
+    'fresh install seeds weekday vibration-only attendance alarms',
+    () async {
+      final schedules = await ScheduleStore.withDefaultSchedules().load();
+
+      expect(schedules, hasLength(2));
+      expect(schedules.map((schedule) => schedule.action), [
+        AttendanceAction.checkIn,
+        AttendanceAction.checkOut,
+      ]);
+      expect(schedules.map((schedule) => schedule.formattedTime), [
+        '09:05',
+        '17:50',
+      ]);
+      for (final schedule in schedules) {
+        expect(schedule.weekdays, {1, 2, 3, 4, 5});
+        expect(schedule.excludePublicHolidays, isTrue);
+        expect(schedule.alarmSettings.volumePercent, 0);
+        expect(schedule.alarmSettings.vibrationEnabled, isTrue);
+      }
+
+      await ScheduleStore().save([]);
+      expect(await ScheduleStore.withDefaultSchedules().load(), isEmpty);
+    },
+  );
+
   test('schedule JSON round trip preserves all fields', () {
     const schedule = AttendanceSchedule(
       id: 'check-in',

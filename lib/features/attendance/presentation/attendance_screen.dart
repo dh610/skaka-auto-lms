@@ -72,9 +72,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
   int _handledReadyActionRevision = 0;
   int _handledStatusRevision = 0;
   int _handledCompletionRevision = 0;
-  bool _showRecentlyUpdated = false;
   AttendanceAction? _highlightedAction;
-  Timer? _recentlyUpdatedTimer;
   Timer? _actionHighlightTimer;
   Timer? _dailyExpiryTimer;
 
@@ -396,21 +394,12 @@ class _AttendanceScreenState extends State<AttendanceScreen>
   void _consumeControllerEvents() {
     if (_controller.snapshot == null &&
         _controller.lastCompletedAction == null) {
-      _showRecentlyUpdated = false;
       _highlightedAction = null;
-      _recentlyUpdatedTimer?.cancel();
       _actionHighlightTimer?.cancel();
     }
 
     if (_controller.statusRevision > _handledStatusRevision) {
       _handledStatusRevision = _controller.statusRevision;
-      _showRecentlyUpdated = true;
-      _recentlyUpdatedTimer?.cancel();
-      final revision = _handledStatusRevision;
-      _recentlyUpdatedTimer = Timer(const Duration(seconds: 5), () {
-        if (!mounted || revision != _handledStatusRevision) return;
-        setState(() => _showRecentlyUpdated = false);
-      });
       _scheduleDailyExpiry();
     }
 
@@ -478,7 +467,6 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     );
     widget.scheduleController.removeListener(_handleNotificationTap);
     _controller.removeListener(_handleControllerChange);
-    _recentlyUpdatedTimer?.cancel();
     _actionHighlightTimer?.cancel();
     _dailyExpiryTimer?.cancel();
     _controller.dispose();
@@ -559,7 +547,6 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                 liveSnapshot: _controller.snapshot,
                 busy: attendanceBusy,
                 interactionLocked: attendanceLocked,
-                showRecentlyUpdated: _showRecentlyUpdated,
                 highlightedAction: _highlightedAction,
                 message: _controller.message,
                 messageKind: _controller.messageKind,
@@ -804,7 +791,6 @@ class _StatusCard extends StatelessWidget {
     required this.liveSnapshot,
     required this.busy,
     required this.interactionLocked,
-    required this.showRecentlyUpdated,
     required this.highlightedAction,
     required this.message,
     required this.messageKind,
@@ -816,7 +802,6 @@ class _StatusCard extends StatelessWidget {
   final AttendanceSnapshot? liveSnapshot;
   final bool busy;
   final bool interactionLocked;
-  final bool showRecentlyUpdated;
   final AttendanceAction? highlightedAction;
   final String message;
   final AttendanceMessageKind messageKind;
@@ -867,16 +852,14 @@ class _StatusCard extends StatelessWidget {
                 ),
               ],
             ),
-            if (showRecentlyUpdated) ...[
-              const SizedBox(height: 4),
-              Text(
-                '방금 업데이트됨',
-                style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                  color: colors.primary,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ],
+            const SizedBox(height: 4),
+            Text(
+              '마지막 갱신: '
+              '${status.fetchedAt == null ? '확인 전' : formatAttendanceTime(status.fetchedAt!.toIso8601String())}',
+              style: Theme.of(
+                context,
+              ).textTheme.labelMedium?.copyWith(color: colors.onSurfaceVariant),
+            ),
             const SizedBox(height: 8),
             _AttendanceStatusTiles(
               status: status,

@@ -160,10 +160,10 @@ void main() {
 
     await tester.tap(find.byTooltip('설정'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('시스템 설정'));
+    await tester.tap(find.text('라이트'));
     await tester.pumpAndSettle();
-    expect(find.text('시스템 설정'), findsNWidgets(2));
-    expect(find.text('라이트'), findsOneWidget);
+    expect(find.text('시스템 설정'), findsOneWidget);
+    expect(find.text('라이트'), findsNWidgets(2));
     expect(find.text('다크'), findsOneWidget);
 
     await tester.tap(find.text('다크'));
@@ -191,8 +191,9 @@ void main() {
     await tester.pump();
     await tester.pump();
 
-    await tester.scrollUntilVisible(find.text('오늘 울릴 알람이 없습니다.'), 200);
-    expect(find.text('오늘 울릴 알람이 없습니다.'), findsOneWidget);
+    await tester.scrollUntilVisible(find.text('오전 9:05 · 입실'), 200);
+    expect(find.text('오전 9:05 · 입실'), findsOneWidget);
+    expect(find.text('오후 5:50 · 퇴실'), findsOneWidget);
     expect(notifications.initializationStarted, isFalse);
   });
 
@@ -265,6 +266,7 @@ void main() {
 
     expect(find.text('오늘 출결 · 7월 24일(금)'), findsOneWidget);
     expect(find.text('확인 전'), findsNWidgets(4));
+    expect(find.text('마지막 갱신: 확인 전'), findsOneWidget);
     expect(find.byTooltip('출결 상태 새로고침'), findsOneWidget);
     for (final action in AttendanceAction.values) {
       expect(find.widgetWithText(FilledButton, action.label), findsOneWidget);
@@ -329,7 +331,8 @@ void main() {
     expect(find.text('오늘 출결 · 7월 24일(금)'), findsOneWidget);
     expect(find.text('09:01'), findsOneWidget);
     expect(find.text('18:02'), findsOneWidget);
-    expect(find.text('방금 업데이트됨'), findsOneWidget);
+    expect(find.text('마지막 갱신: 12:00'), findsOneWidget);
+    expect(find.text('방금 업데이트됨'), findsNothing);
     expect(find.textContaining('네트워크 허용:'), findsNothing);
     expect(find.text('현재 네트워크에서는 출결 동작을 전송할 수 없습니다.'), findsOneWidget);
     expect(find.textContaining('2026-07-24T'), findsNothing);
@@ -1306,6 +1309,7 @@ void main() {
 
     expect(find.text('09:01'), findsOneWidget);
     expect(find.text('없음'), findsNWidgets(3));
+    expect(find.text('마지막 갱신: 12:00'), findsOneWidget);
     expect(find.widgetWithText(FilledButton, '외출'), findsOneWidget);
     expect(find.widgetWithText(FilledButton, '퇴실'), findsOneWidget);
     expect(find.widgetWithText(FilledButton, '입실'), findsNothing);
