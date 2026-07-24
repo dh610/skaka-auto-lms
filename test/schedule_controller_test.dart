@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:skala_attendance/features/schedule/application/schedule_controller.dart';
 import 'package:skala_attendance/features/schedule/data/schedule_store.dart';
+import 'package:skala_attendance/features/schedule/domain/alarm_settings.dart';
 import 'package:skala_attendance/features/schedule/domain/attendance_schedule.dart';
 import 'package:skala_attendance/features/schedule/domain/training_calendar.dart';
 
@@ -87,6 +88,60 @@ void main() {
     expect(schedule.recurrence, ScheduleRecurrence.weekly);
     expect(schedule.excludePublicHolidays, isTrue);
     expect(schedule.date, isNull);
+    expect(schedule.alarmSettings, const AlarmSettings());
+  });
+
+  test('schedule JSON round trip preserves alarm settings', () {
+    const settings = AlarmSettings(
+      sound: AlarmSound(uri: 'content://alarm/custom', label: 'Morning'),
+      volumePercent: 65,
+      vibrationEnabled: false,
+      gradualVolumeEnabled: true,
+      snoozeMinutes: 10,
+      maximumSnoozeCount: null,
+      volumeButtonAction: AlarmVolumeButtonAction.dismiss,
+    );
+    const schedule = AttendanceSchedule(
+      id: 'alarm-settings',
+      action: AttendanceAction.checkIn,
+      hour: 8,
+      minute: 50,
+      weekdays: {1, 2, 3, 4, 5},
+      enabled: true,
+      alarmSettings: settings,
+    );
+
+    final restored = AttendanceSchedule.fromJson(schedule.toJson());
+
+    expect(restored.alarmSettings, settings);
+  });
+
+  test('new schedules reuse the last saved alarm settings', () async {
+    final controller = ScheduleController(ScheduleStore());
+    await controller.load();
+    const settings = AlarmSettings(
+      volumePercent: 40,
+      vibrationEnabled: false,
+      snoozeMinutes: 3,
+      maximumSnoozeCount: 1,
+    );
+    const schedule = AttendanceSchedule(
+      id: 'remember-alarm',
+      action: AttendanceAction.checkOut,
+      hour: 18,
+      minute: 0,
+      weekdays: {1, 2, 3, 4, 5},
+      enabled: true,
+      alarmSettings: settings,
+    );
+
+    await controller.saveSchedule(schedule);
+    final restored = ScheduleController(ScheduleStore());
+    await restored.load();
+
+    expect(restored.defaultAlarmSettings, settings);
+    controller.dispose();
+    restored.dispose();
   });
 
   test('weekly schedules skip holidays but date schedules remain', () async {

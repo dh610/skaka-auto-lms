@@ -1,3 +1,5 @@
+import 'alarm_settings.dart';
+
 enum AttendanceAction {
   checkIn('입실', 'CHECK_IN'),
   checkOut('퇴실', 'CHECK_OUT'),
@@ -30,6 +32,7 @@ class AttendanceSchedule {
     this.recurrence = ScheduleRecurrence.weekly,
     this.date,
     this.excludePublicHolidays = true,
+    this.alarmSettings = const AlarmSettings(),
   }) : assert(recurrence == ScheduleRecurrence.weekly || date != null);
 
   factory AttendanceSchedule.fromJson(Map<String, dynamic> json) {
@@ -49,6 +52,10 @@ class AttendanceSchedule {
           : ScheduleRecurrence.values.byName(recurrenceName),
       date: dateValue == null ? null : DateTime.parse(dateValue),
       excludePublicHolidays: json['excludePublicHolidays'] as bool? ?? true,
+      alarmSettings: AlarmSettings.fromJson(switch (json['alarmSettings']) {
+        final Map<String, dynamic> value => value,
+        _ => null,
+      }),
     );
   }
 
@@ -61,6 +68,7 @@ class AttendanceSchedule {
   final ScheduleRecurrence recurrence;
   final DateTime? date;
   final bool excludePublicHolidays;
+  final AlarmSettings alarmSettings;
 
   int get minutesSinceMidnight => hour * 60 + minute;
 
@@ -94,6 +102,7 @@ class AttendanceSchedule {
     ScheduleRecurrence? recurrence,
     DateTime? date,
     bool? excludePublicHolidays,
+    AlarmSettings? alarmSettings,
   }) {
     return AttendanceSchedule(
       id: id,
@@ -106,6 +115,7 @@ class AttendanceSchedule {
       date: date ?? this.date,
       excludePublicHolidays:
           excludePublicHolidays ?? this.excludePublicHolidays,
+      alarmSettings: alarmSettings ?? this.alarmSettings,
     );
   }
 
@@ -119,6 +129,7 @@ class AttendanceSchedule {
     'recurrence': recurrence.name,
     'date': date == null ? null : formatIsoDate(date!),
     'excludePublicHolidays': excludePublicHolidays,
+    'alarmSettings': alarmSettings.toJson(),
   };
 }
 

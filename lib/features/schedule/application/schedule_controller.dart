@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 
 import '../data/schedule_store.dart';
 import '../domain/attendance_schedule.dart';
+import '../domain/alarm_settings.dart';
 import '../domain/schedule_conflict.dart';
 import '../domain/training_calendar.dart';
 import 'notification_scheduler.dart';
@@ -18,15 +19,18 @@ class ScheduleController extends ChangeNotifier {
   bool _notificationsConfigured = false;
   Future<bool>? _notificationSyncFuture;
   bool _notificationSyncRequested = false;
+  AlarmSettings _defaultAlarmSettings = const AlarmSettings();
 
   List<AttendanceSchedule> get schedules => List.unmodifiable(_schedules);
   bool get loading => _loading;
   String get notificationMessage => _notificationMessage;
   int get pendingNotificationCount => _pendingNotificationCount;
   bool get notificationsConfigured => _notificationsConfigured;
+  AlarmSettings get defaultAlarmSettings => _defaultAlarmSettings;
 
   Future<void> load() async {
     _schedules = await _store.load();
+    _defaultAlarmSettings = await _store.loadLastAlarmSettings();
     _sort();
     _loading = false;
     notifyListeners();
@@ -56,6 +60,8 @@ class ScheduleController extends ChangeNotifier {
     } else {
       _schedules[index] = schedule;
     }
+    _defaultAlarmSettings = schedule.alarmSettings;
+    await _store.saveLastAlarmSettings(schedule.alarmSettings);
     await _persist(requestPermission: true);
     return null;
   }
