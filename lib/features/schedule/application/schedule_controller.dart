@@ -4,6 +4,7 @@ import '../data/schedule_store.dart';
 import '../domain/attendance_schedule.dart';
 import '../domain/alarm_settings.dart';
 import '../domain/schedule_conflict.dart';
+import '../domain/schedule_reminder.dart';
 import '../domain/training_calendar.dart';
 import 'alarm_sound_picker.dart';
 import 'notification_scheduler.dart';
@@ -78,7 +79,60 @@ class ScheduleController extends ChangeNotifier {
   Future<ScheduleConflict?> setEnabled(
     AttendanceSchedule schedule,
     bool enabled,
-  ) => saveSchedule(schedule.copyWith(enabled: enabled));
+  ) => saveSchedule(
+    schedule.copyWith(enabled: enabled, clearSkippedOccurrence: true),
+  );
+
+  DateTime? suggestedResumeAt(
+    AttendanceSchedule schedule, {
+    required DateTime now,
+  }) {
+    final occurrences = ScheduleReminderPlanner.nextOccurrenceTimes(
+      schedule,
+      now: now,
+      limit: 2,
+    );
+    return occurrences.length < 2 ? null : occurrences[1];
+  }
+
+  DateTime? automaticResumeAt(
+    AttendanceSchedule schedule, {
+    required DateTime now,
+  }) {
+    final skipped = schedule.skippedOccurrenceAt;
+    if (skipped == null || now.isAfter(skipped)) return null;
+    final occurrences = ScheduleReminderPlanner.nextOccurrenceTimes(
+      schedule,
+      now: skipped,
+      limit: 1,
+    );
+    return occurrences.firstOrNull;
+  }
+
+  bool isDisplayedEnabled(AttendanceSchedule schedule, DateTime now) {
+    final skipped = schedule.skippedOccurrenceAt;
+    return schedule.enabled && (skipped == null || now.isAfter(skipped));
+  }
+
+  Future<DateTime?> resumeAfterNextOccurrence(
+    AttendanceSchedule schedule, {
+    required DateTime now,
+  }) async {
+    final occurrences = ScheduleReminderPlanner.nextOccurrenceTimes(
+      schedule,
+      now: now,
+      limit: 2,
+    );
+    if (occurrences.length < 2) return null;
+    final index = _schedules.indexWhere((item) => item.id == schedule.id);
+    if (index == -1) return null;
+    _schedules[index] = schedule.copyWith(
+      enabled: true,
+      skippedOccurrenceAt: occurrences[0],
+    );
+    await _persist();
+    return occurrences[1];
+  }
 
   Future<void> delete(AttendanceSchedule schedule) async {
     _schedules.removeWhere((item) => item.id == schedule.id);

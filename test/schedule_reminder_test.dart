@@ -54,6 +54,46 @@ void main() {
     expect(reminders.single.dateTime, DateTime(2026, 7, 17, 10));
   });
 
+  test('planner excludes only the selected occurrence', () {
+    final schedule = AttendanceSchedule(
+      id: 'skip-once',
+      action: AttendanceAction.checkIn,
+      hour: 9,
+      minute: 0,
+      weekdays: const {1, 2, 3, 4, 5},
+      enabled: true,
+      skippedOccurrenceAt: DateTime(2026, 7, 21, 9),
+    );
+
+    final reminders = ScheduleReminderPlanner.plan([
+      schedule,
+    ], now: DateTime(2026, 7, 21, 8));
+
+    expect(reminders.take(2).map((item) => item.dateTime), [
+      DateTime(2026, 7, 22, 9),
+      DateTime(2026, 7, 23, 9),
+    ]);
+  });
+
+  test('next occurrences ignore enabled state and skip public holidays', () {
+    const schedule = AttendanceSchedule(
+      id: 'disabled-weekday',
+      action: AttendanceAction.checkIn,
+      hour: 9,
+      minute: 0,
+      weekdays: {1, 2, 3, 4, 5},
+      enabled: false,
+    );
+
+    final occurrences = ScheduleReminderPlanner.nextOccurrenceTimes(
+      schedule,
+      now: DateTime(2026, 7, 16, 8),
+      limit: 2,
+    );
+
+    expect(occurrences, [DateTime(2026, 7, 16, 9), DateTime(2026, 7, 20, 9)]);
+  });
+
   test('alarm occurrence carries settings and attendance payload', () {
     const schedule = AttendanceSchedule(
       id: 'native-alarm',

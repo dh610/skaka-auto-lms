@@ -115,6 +115,58 @@ void main() {
     expect(restored.alarmSettings, settings);
   });
 
+  test('schedule JSON round trip preserves one skipped occurrence', () {
+    final schedule = AttendanceSchedule(
+      id: 'skip-one',
+      action: AttendanceAction.checkOut,
+      hour: 17,
+      minute: 50,
+      weekdays: const {1, 2, 3, 4, 5},
+      enabled: true,
+      skippedOccurrenceAt: DateTime(2026, 7, 21, 17, 50),
+    );
+
+    final restored = AttendanceSchedule.fromJson(schedule.toJson());
+
+    expect(restored.skippedOccurrenceAt, schedule.skippedOccurrenceAt);
+  });
+
+  test(
+    'controller can skip the next occurrence and keep later alarms',
+    () async {
+      final controller = ScheduleController(ScheduleStore());
+      await controller.load();
+      const schedule = AttendanceSchedule(
+        id: 'weekday-auto-resume',
+        action: AttendanceAction.checkIn,
+        hour: 9,
+        minute: 0,
+        weekdays: {1, 2, 3, 4, 5},
+        enabled: false,
+      );
+      await controller.saveSchedule(schedule);
+
+      final resumeAt = await controller.resumeAfterNextOccurrence(
+        schedule,
+        now: DateTime(2026, 7, 21, 8),
+      );
+
+      expect(resumeAt, DateTime(2026, 7, 22, 9));
+      final updated = controller.schedules.single;
+      expect(updated.enabled, isTrue);
+      expect(updated.skippedOccurrenceAt, DateTime(2026, 7, 21, 9));
+      expect(
+        controller.isDisplayedEnabled(updated, DateTime(2026, 7, 21, 8, 30)),
+        isFalse,
+      );
+      expect(
+        controller.isDisplayedEnabled(updated, DateTime(2026, 7, 21, 9, 1)),
+        isTrue,
+      );
+      controller.dispose();
+    },
+  );
+
   test('malformed alarm settings fall back without losing the schedule', () {
     final schedule = AttendanceSchedule.fromJson({
       'id': 'malformed-alarm',

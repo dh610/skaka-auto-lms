@@ -33,6 +33,7 @@ class AttendanceSchedule {
     this.date,
     this.excludePublicHolidays = true,
     this.alarmSettings = const AlarmSettings(),
+    this.skippedOccurrenceAt,
   }) : assert(recurrence == ScheduleRecurrence.weekly || date != null);
 
   factory AttendanceSchedule.fromJson(Map<String, dynamic> json) {
@@ -56,6 +57,10 @@ class AttendanceSchedule {
         final Map<String, dynamic> value => value,
         _ => null,
       }),
+      skippedOccurrenceAt: switch (json['skippedOccurrenceAt']) {
+        final String value => DateTime.tryParse(value),
+        _ => null,
+      },
     );
   }
 
@@ -69,6 +74,7 @@ class AttendanceSchedule {
   final DateTime? date;
   final bool excludePublicHolidays;
   final AlarmSettings alarmSettings;
+  final DateTime? skippedOccurrenceAt;
 
   int get minutesSinceMidnight => hour * 60 + minute;
 
@@ -103,6 +109,8 @@ class AttendanceSchedule {
     DateTime? date,
     bool? excludePublicHolidays,
     AlarmSettings? alarmSettings,
+    DateTime? skippedOccurrenceAt,
+    bool clearSkippedOccurrence = false,
   }) {
     return AttendanceSchedule(
       id: id,
@@ -116,6 +124,9 @@ class AttendanceSchedule {
       excludePublicHolidays:
           excludePublicHolidays ?? this.excludePublicHolidays,
       alarmSettings: alarmSettings ?? this.alarmSettings,
+      skippedOccurrenceAt: clearSkippedOccurrence
+          ? null
+          : skippedOccurrenceAt ?? this.skippedOccurrenceAt,
     );
   }
 
@@ -130,6 +141,7 @@ class AttendanceSchedule {
     'date': date == null ? null : formatIsoDate(date!),
     'excludePublicHolidays': excludePublicHolidays,
     'alarmSettings': alarmSettings.toJson(),
+    'skippedOccurrenceAt': skippedOccurrenceAt?.toIso8601String(),
   };
 }
 
