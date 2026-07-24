@@ -28,6 +28,10 @@ class AttendanceController extends ChangeNotifier {
   String? _token;
   _AttendanceRecovery? _recovery;
   bool _hasError = false;
+  int _statusRevision = 0;
+  int _completionRevision = 0;
+  AttendanceAction? _lastCompletedAction;
+  AttendanceAction? _pendingActionConfirmation;
   Map<String, DateTime> _completedOccurrences = {};
   Map<String, DateTime> _skippedOccurrences = {};
 
@@ -36,6 +40,9 @@ class AttendanceController extends ChangeNotifier {
   AttendanceSnapshot? get snapshot => _snapshot;
   bool get authenticated => _token != null;
   bool get hasError => _hasError;
+  int get statusRevision => _statusRevision;
+  int get completionRevision => _completionRevision;
+  AttendanceAction? get lastCompletedAction => _lastCompletedAction;
   bool get canRetry => _recovery != null;
   bool get retryRequiresAuthentication =>
       _recovery == _AttendanceRecovery.authenticate;
@@ -106,6 +113,8 @@ class AttendanceController extends ChangeNotifier {
   void updateProfile(UserProfile profile) {
     _profile = profile;
     _token = null;
+    _lastCompletedAction = null;
+    _pendingActionConfirmation = null;
     _completedOccurrences = {};
     _skippedOccurrences = {};
     if (completionStore case final store?) unawaited(store.clear());
@@ -121,6 +130,8 @@ class AttendanceController extends ChangeNotifier {
     DateTime? scheduledAt,
   }) async {
     _token = null;
+    _lastCompletedAction = null;
+    _pendingActionConfirmation = null;
     _setState(
       busy: true,
       clearSnapshot: true,
@@ -168,11 +179,7 @@ class AttendanceController extends ChangeNotifier {
       _gateway.validateAttendanceToken(token, _profile);
       final snapshot = await _gateway.fetchToday(token);
       _token = token;
-      _setState(
-        snapshot: snapshot,
-        message: '인증 및 상태 조회에 성공했습니다.',
-        clearRecovery: true,
-      );
+      _publishSnapshot(snapshot, message: '인증 및 상태 조회에 성공했습니다.');
     } catch (error) {
       _token = null;
       _setState(
@@ -197,13 +204,18 @@ class AttendanceController extends ChangeNotifier {
       return;
     }
     _setState(busy: true, message: '${action.label} 요청 전송 중…');
+    _pendingActionConfirmation = action;
     try {
       await _gateway.recordAction(token, action);
       final updated = await _gateway.fetchToday(token);
       if (!updated.reflects(action)) {
         throw StateError('서버 상태에서 ${action.label} 반영을 확인하지 못했습니다.');
       }
-      _setState(snapshot: updated, message: '${action.label} 처리가 완료되었습니다.');
+      _publishSnapshot(
+        updated,
+        message: '${action.label} 처리가 완료되었습니다.',
+        completedAction: action,
+      );
     } catch (error) {
       _setState(
         message: _friendlyError(
@@ -255,10 +267,16 @@ class AttendanceController extends ChangeNotifier {
     _setState(busy: true, message: '현재 출결 상태 확인 중…', clearRecovery: true);
     try {
       final snapshot = await _gateway.fetchToday(token);
-      _setState(
-        snapshot: snapshot,
-        message: '현재 출결 상태를 다시 확인했습니다.',
-        clearRecovery: true,
+      final pendingAction = _pendingActionConfirmation;
+      if (pendingAction != null && !snapshot.reflects(pendingAction)) {
+        throw StateError('서버 상태에서 ${pendingAction.label} 반영을 확인하지 못했습니다.');
+      }
+      _publishSnapshot(
+        snapshot,
+        message: pendingAction == null
+            ? '현재 출결 상태를 다시 확인했습니다.'
+            : '${pendingAction.label} 처리가 완료되었습니다.',
+        completedAction: pendingAction,
       );
     } catch (error) {
       _setState(
@@ -269,6 +287,20 @@ class AttendanceController extends ChangeNotifier {
     } finally {
       _setState(busy: false);
     }
+  }
+
+  void _publishSnapshot(
+    AttendanceSnapshot snapshot, {
+    required String message,
+    AttendanceAction? completedAction,
+  }) {
+    _statusRevision++;
+    if (completedAction != null) {
+      _completionRevision++;
+      _lastCompletedAction = completedAction;
+      _pendingActionConfirmation = null;
+    }
+    _setState(snapshot: snapshot, message: message, clearRecovery: true);
   }
 
   void _setState({

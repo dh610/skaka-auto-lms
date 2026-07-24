@@ -40,6 +40,9 @@ void main() {
     expect(gateway.fetchedToken, 'test-token');
     expect(controller.snapshot, same(gateway.snapshot));
     expect(controller.message, '인증 및 상태 조회에 성공했습니다.');
+    expect(controller.statusRevision, 1);
+    expect(controller.completionRevision, 0);
+    expect(controller.lastCompletedAction, isNull);
     controller.dispose();
   });
 
@@ -141,6 +144,9 @@ void main() {
     expect(gateway.recordedToken, 'test-token');
     expect(controller.snapshot?.earlyLeaveTime, '12:00');
     expect(controller.message, '외출 처리가 완료되었습니다.');
+    expect(controller.statusRevision, 2);
+    expect(controller.completionRevision, 1);
+    expect(controller.lastCompletedAction, AttendanceAction.leave);
     controller.dispose();
   });
 
@@ -197,11 +203,44 @@ void main() {
 
       expect(controller.retryLabel, '출결 상태 다시 조회');
       expect(gateway.recordCallCount, 1);
+      expect(controller.completionRevision, 0);
+      expect(controller.lastCompletedAction, isNull);
       gateway.fetchError = null;
       await controller.retry();
       expect(gateway.recordCallCount, 1);
       expect(controller.snapshot?.earlyLeaveTime, '12:00');
       expect(controller.hasError, isFalse);
+      expect(controller.completionRevision, 1);
+      expect(controller.lastCompletedAction, AttendanceAction.leave);
+      controller.dispose();
+    },
+  );
+
+  test(
+    'status retry stays incomplete until the server reflects the action',
+    () async {
+      final gateway = _FakeAttendanceGateway();
+      final controller = AttendanceController(
+        profile,
+        gateway,
+        isAndroid: true,
+      );
+      await controller.handleCallback(
+        Uri.parse('https://att.skala-ai.com/?token=test-token'),
+      );
+      gateway
+        ..fetchError = TimeoutException('timed out')
+        ..reflectRecordedAction = false;
+
+      await controller.performAction(AttendanceAction.leave);
+
+      gateway.fetchError = null;
+      await controller.retry();
+
+      expect(controller.completionRevision, 0);
+      expect(controller.lastCompletedAction, isNull);
+      expect(controller.canRetry, isTrue);
+      expect(controller.retryLabel, '출결 상태 다시 조회');
       controller.dispose();
     },
   );
@@ -245,6 +284,7 @@ class _FakeAttendanceGateway implements AttendanceGateway {
   AttendanceAction? recordedAction;
   Object? authenticationError;
   Object? fetchError;
+  bool reflectRecordedAction = true;
   int recordCallCount = 0;
   int authenticationCallCount = 0;
 
@@ -272,7 +312,7 @@ class _FakeAttendanceGateway implements AttendanceGateway {
     recordCallCount++;
     recordedToken = token;
     recordedAction = action;
-    if (action == AttendanceAction.leave) {
+    if (action == AttendanceAction.leave && reflectRecordedAction) {
       snapshot = const AttendanceSnapshot(
         networkAllowed: true,
         checkInTime: '09:00',
