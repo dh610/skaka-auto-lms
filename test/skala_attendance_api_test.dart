@@ -109,4 +109,36 @@ void main() {
       api.close();
     },
   );
+
+  test('status lookup maps 401 and 403 to authentication expiry', () async {
+    for (final statusCode in [401, 403]) {
+      final api = SkalaAttendanceApi(
+        client: MockClient((_) async => http.Response('{}', statusCode)),
+      );
+
+      await expectLater(
+        api.fetchToday('attendance-token'),
+        throwsA(isA<AttendanceAuthenticationExpiredException>()),
+      );
+      api.close();
+    }
+  });
+
+  test('status lookup keeps other server failures generic', () async {
+    final api = SkalaAttendanceApi(
+      client: MockClient((_) async => http.Response('{}', 500)),
+    );
+
+    await expectLater(
+      api.fetchToday('attendance-token'),
+      throwsA(
+        isA<StateError>().having(
+          (error) => error.message,
+          'message',
+          contains('HTTP 500'),
+        ),
+      ),
+    );
+    api.close();
+  });
 }

@@ -11,6 +11,10 @@ class AttendanceActionRejectedException implements Exception {
   String toString() => message;
 }
 
+class AttendanceAuthenticationExpiredException implements Exception {
+  const AttendanceAuthenticationExpiredException();
+}
+
 abstract interface class AttendanceGateway {
   Future<void> startBrowserAuthentication(UserProfile profile);
 
