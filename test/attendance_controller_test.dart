@@ -325,6 +325,94 @@ void main() {
     },
   );
 
+  test(
+    'old action result cannot restore status after Korean midnight',
+    () async {
+      var now = DateTime.utc(2026, 7, 24, 14, 59, 59);
+      final recordGate = Completer<void>();
+      final gateway = _FakeAttendanceGateway()..recordGate = recordGate;
+      final controller = AttendanceController(
+        profile,
+        gateway,
+        isAndroid: true,
+        now: () => now,
+      );
+      await controller.handleCallback(
+        Uri.parse('https://att.skala-ai.com/?token=test-token'),
+      );
+
+      final action = controller.performAction(AttendanceAction.leave);
+      await Future<void>.delayed(Duration.zero);
+      now = DateTime.utc(2026, 7, 24, 15, 0, 1);
+      expect(controller.invalidateExpiredDailyState(), isTrue);
+      recordGate.complete();
+      await action;
+
+      expect(controller.snapshot, isNull);
+      expect(controller.authenticated, isFalse);
+      expect(controller.completionRevision, 0);
+      controller.dispose();
+    },
+  );
+
+  test(
+    'old refresh result cannot restore status after Korean midnight',
+    () async {
+      var now = DateTime.utc(2026, 7, 24, 14, 59, 59);
+      final gateway = _FakeAttendanceGateway();
+      final controller = AttendanceController(
+        profile,
+        gateway,
+        isAndroid: true,
+        now: () => now,
+      );
+      await controller.handleCallback(
+        Uri.parse('https://att.skala-ai.com/?token=test-token'),
+      );
+      final fetchGate = Completer<void>();
+      gateway.fetchGate = fetchGate;
+
+      final refresh = controller.refreshStatus();
+      await Future<void>.delayed(Duration.zero);
+      now = DateTime.utc(2026, 7, 24, 15, 0, 1);
+      expect(controller.invalidateExpiredDailyState(), isTrue);
+      fetchGate.complete();
+      await refresh;
+
+      expect(controller.snapshot, isNull);
+      expect(controller.authenticated, isFalse);
+      controller.dispose();
+    },
+  );
+
+  test(
+    'callback finishing after Korean midnight requires new authentication',
+    () async {
+      var now = DateTime.utc(2026, 7, 24, 14, 59, 59);
+      final fetchGate = Completer<void>();
+      final gateway = _FakeAttendanceGateway()..fetchGate = fetchGate;
+      final controller = AttendanceController(
+        profile,
+        gateway,
+        isAndroid: true,
+        now: () => now,
+      );
+
+      final callback = controller.handleCallback(
+        Uri.parse('https://att.skala-ai.com/?token=test-token'),
+      );
+      await Future<void>.delayed(Duration.zero);
+      now = DateTime.utc(2026, 7, 24, 15, 0, 1);
+      fetchGate.complete();
+      await callback;
+
+      expect(controller.snapshot, isNull);
+      expect(controller.authenticated, isFalse);
+      expect(controller.retryRequiresAuthentication, isTrue);
+      controller.dispose();
+    },
+  );
+
   test('available actions follow attendance state order', () {
     expect(const AttendanceSnapshot(networkAllowed: true).availableActions, {
       AttendanceAction.checkIn,
@@ -365,6 +453,8 @@ class _FakeAttendanceGateway implements AttendanceGateway {
   Object? authenticationError;
   Object? fetchError;
   Object? recordError;
+  Completer<void>? fetchGate;
+  Completer<void>? recordGate;
   bool reflectRecordedAction = true;
   int recordCallCount = 0;
   int authenticationCallCount = 0;
@@ -383,6 +473,7 @@ class _FakeAttendanceGateway implements AttendanceGateway {
 
   @override
   Future<AttendanceSnapshot> fetchToday(String token) async {
+    await fetchGate?.future;
     if (fetchError case final error?) throw error;
     fetchedToken = token;
     return snapshot;
@@ -393,6 +484,7 @@ class _FakeAttendanceGateway implements AttendanceGateway {
     recordCallCount++;
     recordedToken = token;
     recordedAction = action;
+    await recordGate?.future;
     if (action == AttendanceAction.leave && reflectRecordedAction) {
       snapshot = const AttendanceSnapshot(
         networkAllowed: true,

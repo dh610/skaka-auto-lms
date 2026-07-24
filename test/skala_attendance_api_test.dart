@@ -77,6 +77,20 @@ void main() {
     api.close();
   });
 
+  test('record API keeps timeout and server failures ambiguous', () async {
+    for (final statusCode in [408, 500]) {
+      final api = SkalaAttendanceApi(
+        client: MockClient((_) async => http.Response('{}', statusCode)),
+      );
+
+      await expectLater(
+        api.recordAction('attendance-token', AttendanceAction.leave),
+        throwsA(isA<StateError>()),
+      );
+      api.close();
+    }
+  });
+
   test(
     'status lookup retries once after a transient network failure',
     () async {

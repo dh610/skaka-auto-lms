@@ -36,6 +36,7 @@ class AttendanceController extends ChangeNotifier {
   AttendanceAction? _lastCompletedAction;
   AttendanceAction? _pendingActionConfirmation;
   DateTime? _snapshotKoreaDate;
+  int _sessionRevision = 0;
   Map<String, DateTime> _completedOccurrences = {};
   Map<String, DateTime> _skippedOccurrences = {};
 
@@ -115,6 +116,7 @@ class AttendanceController extends ChangeNotifier {
   }
 
   void updateProfile(UserProfile profile) {
+    _sessionRevision++;
     _profile = profile;
     _token = null;
     _lastCompletedAction = null;
@@ -124,6 +126,7 @@ class AttendanceController extends ChangeNotifier {
     _skippedOccurrences = {};
     if (completionStore case final store?) unawaited(store.clear());
     _setState(
+      busy: false,
       clearSnapshot: true,
       message: '사용자 정보가 변경되었습니다. 다시 인증해주세요.',
       recovery: _AttendanceRecovery.authenticate,
@@ -134,6 +137,8 @@ class AttendanceController extends ChangeNotifier {
     String? scheduleId,
     DateTime? scheduledAt,
   }) async {
+    final sessionRevision = ++_sessionRevision;
+    final operationDate = _koreaDate(_now());
     _token = null;
     _lastCompletedAction = null;
     _pendingActionConfirmation = null;
@@ -146,8 +151,10 @@ class AttendanceController extends ChangeNotifier {
     );
     try {
       await _gateway.startBrowserAuthentication(_profile);
+      if (!_operationIsCurrent(sessionRevision, operationDate)) return;
       if (scheduleId != null && scheduledAt != null) {
         await _rememberScheduledOccurrence(scheduleId, scheduledAt);
+        if (!_operationIsCurrent(sessionRevision, operationDate)) return;
       }
       _setState(
         message: _isAndroid
@@ -155,13 +162,14 @@ class AttendanceController extends ChangeNotifier {
             : '앱 내 Safari 화면에서 Google 계정을 선택한 뒤 SKALA 웹 화면에서 원하는 동작을 수행하세요.',
       );
     } catch (error) {
+      if (!_operationIsCurrent(sessionRevision, operationDate)) return;
       _setState(
         message: _friendlyError(error, operation: 'Google 인증을 시작하지 못했습니다.'),
         hasError: true,
         recovery: _AttendanceRecovery.authenticate,
       );
     } finally {
-      _setState(busy: false);
+      if (sessionRevision == _sessionRevision) _setState(busy: false);
     }
   }
 
@@ -180,13 +188,25 @@ class AttendanceController extends ChangeNotifier {
       );
       return;
     }
-    _setState(busy: true, message: '인증 토큰 확인 및 상태 조회 중…');
+    final sessionRevision = ++_sessionRevision;
+    final operationDate = _koreaDate(_now());
+    _token = null;
+    _lastCompletedAction = null;
+    _pendingActionConfirmation = null;
+    _snapshotKoreaDate = null;
+    _setState(busy: true, clearSnapshot: true, message: '인증 토큰 확인 및 상태 조회 중…');
     try {
       _gateway.validateAttendanceToken(token, _profile);
       final snapshot = await _gateway.fetchToday(token);
+      if (!_operationIsCurrent(sessionRevision, operationDate)) return;
       _token = token;
-      _publishSnapshot(snapshot, message: '인증 및 상태 조회에 성공했습니다.');
+      _publishSnapshot(
+        snapshot,
+        message: '인증 및 상태 조회에 성공했습니다.',
+        koreaDate: operationDate,
+      );
     } catch (error) {
+      if (!_operationIsCurrent(sessionRevision, operationDate)) return;
       _token = null;
       _setState(
         message: _friendlyError(error, operation: '출결 정보를 불러오지 못했습니다.'),
@@ -194,12 +214,14 @@ class AttendanceController extends ChangeNotifier {
         recovery: _AttendanceRecovery.authenticate,
       );
     } finally {
-      _setState(busy: false);
+      if (sessionRevision == _sessionRevision) _setState(busy: false);
     }
   }
 
   Future<void> performAction(AttendanceAction action) async {
     if (invalidateExpiredDailyState()) return;
+    final sessionRevision = _sessionRevision;
+    final operationDate = _koreaDate(_now());
     final token = _token;
     final current = _snapshot;
     if (token == null || current == null) {
@@ -214,7 +236,13 @@ class AttendanceController extends ChangeNotifier {
     _pendingActionConfirmation = action;
     try {
       await _gateway.recordAction(token, action);
+      if (!_operationIsCurrent(sessionRevision, operationDate, token: token)) {
+        return;
+      }
       final updated = await _gateway.fetchToday(token);
+      if (!_operationIsCurrent(sessionRevision, operationDate, token: token)) {
+        return;
+      }
       if (!updated.reflects(action)) {
         throw StateError('서버 상태에서 ${action.label} 반영을 확인하지 못했습니다.');
       }
@@ -222,8 +250,12 @@ class AttendanceController extends ChangeNotifier {
         updated,
         message: '${action.label} 처리가 완료되었습니다.',
         completedAction: action,
+        koreaDate: operationDate,
       );
     } catch (error) {
+      if (!_operationIsCurrent(sessionRevision, operationDate, token: token)) {
+        return;
+      }
       final definitelyRejected = error is AttendanceActionRejectedException;
       if (definitelyRejected) _pendingActionConfirmation = null;
       _setState(
@@ -239,7 +271,7 @@ class AttendanceController extends ChangeNotifier {
         recovery: _AttendanceRecovery.refresh,
       );
     } finally {
-      _setState(busy: false);
+      if (sessionRevision == _sessionRevision) _setState(busy: false);
     }
   }
 
@@ -272,6 +304,8 @@ class AttendanceController extends ChangeNotifier {
 
   Future<void> refreshStatus() async {
     if (invalidateExpiredDailyState()) return;
+    final sessionRevision = _sessionRevision;
+    final operationDate = _koreaDate(_now());
     final token = _token;
     if (token == null) {
       await startAuthentication();
@@ -280,6 +314,9 @@ class AttendanceController extends ChangeNotifier {
     _setState(busy: true, message: '현재 출결 상태 확인 중…', clearRecovery: true);
     try {
       final snapshot = await _gateway.fetchToday(token);
+      if (!_operationIsCurrent(sessionRevision, operationDate, token: token)) {
+        return;
+      }
       final pendingAction = _pendingActionConfirmation;
       if (pendingAction != null && !snapshot.reflects(pendingAction)) {
         throw StateError('서버 상태에서 ${pendingAction.label} 반영을 확인하지 못했습니다.');
@@ -290,15 +327,19 @@ class AttendanceController extends ChangeNotifier {
             ? '현재 출결 상태를 다시 확인했습니다.'
             : '${pendingAction.label} 처리가 완료되었습니다.',
         completedAction: pendingAction,
+        koreaDate: operationDate,
       );
     } catch (error) {
+      if (!_operationIsCurrent(sessionRevision, operationDate, token: token)) {
+        return;
+      }
       _setState(
         message: _friendlyError(error, operation: '출결 정보를 불러오지 못했습니다.'),
         hasError: true,
         recovery: _AttendanceRecovery.refresh,
       );
     } finally {
-      _setState(busy: false);
+      if (sessionRevision == _sessionRevision) _setState(busy: false);
     }
   }
 
@@ -306,8 +347,9 @@ class AttendanceController extends ChangeNotifier {
     AttendanceSnapshot snapshot, {
     required String message,
     AttendanceAction? completedAction,
+    DateTime? koreaDate,
   }) {
-    _snapshotKoreaDate = _koreaDate(_now());
+    _snapshotKoreaDate = koreaDate ?? _koreaDate(_now());
     _statusRevision++;
     if (completedAction != null) {
       _completionRevision++;
@@ -322,16 +364,35 @@ class AttendanceController extends ChangeNotifier {
     if (snapshotDate == null || snapshotDate == _koreaDate(_now())) {
       return false;
     }
+    _expireDailySession();
+    return true;
+  }
+
+  bool _operationIsCurrent(
+    int sessionRevision,
+    DateTime operationDate, {
+    String? token,
+  }) {
+    if (sessionRevision != _sessionRevision) return false;
+    if (operationDate != _koreaDate(_now())) {
+      _expireDailySession();
+      return false;
+    }
+    return token == null || token == _token;
+  }
+
+  void _expireDailySession() {
+    _sessionRevision++;
     _token = null;
     _snapshotKoreaDate = null;
     _lastCompletedAction = null;
     _pendingActionConfirmation = null;
     _setState(
+      busy: false,
       clearSnapshot: true,
       message: '날짜가 바뀌어 오늘 출결 정보를 다시 확인해야 합니다.',
       recovery: _AttendanceRecovery.authenticate,
     );
-    return true;
   }
 
   DateTime _koreaDate(DateTime value) {
