@@ -191,8 +191,8 @@ void main() {
     await tester.pump();
     await tester.pump();
 
-    await tester.scrollUntilVisible(find.text('오늘 실행할 일정이 없습니다.'), 200);
-    expect(find.text('오늘 실행할 일정이 없습니다.'), findsOneWidget);
+    await tester.scrollUntilVisible(find.text('오늘 울릴 알람이 없습니다.'), 200);
+    expect(find.text('오늘 울릴 알람이 없습니다.'), findsOneWidget);
     expect(notifications.initializationStarted, isFalse);
   });
 

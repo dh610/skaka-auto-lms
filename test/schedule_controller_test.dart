@@ -155,6 +155,11 @@ void main() {
       final updated = controller.schedules.single;
       expect(updated.enabled, isTrue);
       expect(updated.skippedOccurrenceAt, DateTime(2026, 7, 21, 9));
+      expect(controller.schedulesFor(DateTime(2026, 7, 21)), isEmpty);
+      expect(
+        controller.schedulesFor(DateTime(2026, 7, 22)).single.id,
+        schedule.id,
+      );
       expect(
         controller.isDisplayedEnabled(updated, DateTime(2026, 7, 21, 8, 30)),
         isFalse,

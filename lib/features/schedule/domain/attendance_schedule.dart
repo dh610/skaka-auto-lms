@@ -93,10 +93,18 @@ class AttendanceSchedule {
 
   bool matches(DateTime target) {
     if (!enabled) return false;
-    if (recurrence == ScheduleRecurrence.weekly) {
-      return weekdays.contains(target.weekday);
-    }
-    return isSameDate(date!, target);
+    final matchesRecurrence = recurrence == ScheduleRecurrence.weekly
+        ? weekdays.contains(target.weekday)
+        : isSameDate(date!, target);
+    if (!matchesRecurrence) return false;
+    final occurrence = DateTime(
+      target.year,
+      target.month,
+      target.day,
+      hour,
+      minute,
+    );
+    return occurrence != skippedOccurrenceAt;
   }
 
   AttendanceSchedule copyWith({
